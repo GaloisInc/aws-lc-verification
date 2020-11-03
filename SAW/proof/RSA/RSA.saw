@@ -1,0 +1,33 @@
+// TODO: Copyright notice
+// TODO: Split into multiple files
+
+enable_experimental;
+
+m <- llvm_load_module "../../build/llvm/crypto/crypto_test.bc";
+
+include "../common/helpers.saw";
+
+// TODO: Verify this still works after reverting change to OPENSSL_PUT_ERROR
+// (Initially changed because it requires some pthread functions and is
+// orthogonal to what we want to prove)
+let EVP_PKEY_encrypt_spec out_len in_len = do {
+  // TODO: Do I have to initialize this global?
+  //crucible_alloc_global "g_thread_local_init_once";
+
+  // TODO: Fill these params in properly
+  crucible_execute_func
+    [ crucible_null
+    , crucible_null
+    , crucible_null
+    , crucible_null
+    , crucible_term {{ `in_len : [64] }}
+    ];
+
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+crucible_llvm_verify m "EVP_PKEY_encrypt"
+  []
+  true
+  (EVP_PKEY_encrypt_spec 200 100)
+  (w4_unint_yices []);
