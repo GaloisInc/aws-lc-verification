@@ -14,12 +14,19 @@ let EVP_PKEY_encrypt_spec out_len in_len = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
 
+  out_ptr <- crucible_alloc (llvm_array out_len i8);
+
+  out_len_ptr <- crucible_alloc i64;
+  crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+
+  in_ptr <- crucible_alloc (llvm_array in_len i8);
+
   // TODO: Fill these params in properly
   crucible_execute_func
     [ crucible_null
-    , crucible_null
-    , crucible_null
-    , crucible_null
+    , out_ptr
+    , out_len_ptr
+    , in_ptr
     , crucible_term {{ `in_len : [64] }}
     ];
 
