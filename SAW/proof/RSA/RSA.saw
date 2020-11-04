@@ -7,12 +7,43 @@ m <- llvm_load_module "../../build/llvm/crypto/crypto_test.bc";
 
 include "../common/helpers.saw";
 
+let EVP_PKEY_OP_ENCRYPT = 64;
+
+let points_to_evp_pkey_ctx_st ptr pmeth_ptr operation = do {
+  crucible_points_to (crucible_field ptr "pmeth") pmeth_ptr;
+  crucible_points_to (crucible_field ptr "operation")
+                     (crucible_term {{ `operation : [32] }});
+};
+
+let points_to_evp_pkey_method_st ptr = do {
+  crucible_points_to (crucible_field ptr "encrypt")
+                     (crucible_global "pkey_rsa_encrypt");
+};
+
+/*
+let EVP_PKEY_init = do {
+  pkey <- crucible_alloc 
+}
+*/
+
+/*
+let rsa_st_init = do {
+
+}
+*/
+
 // TODO: Verify this still works after reverting change to OPENSSL_PUT_ERROR
 // (Initially changed because it requires some pthread functions and is
 // orthogonal to what we want to prove)
+// TODO: out_len must be >= key_len
 let EVP_PKEY_encrypt_spec out_len in_len = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
+  
+  ctx_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_ctx_st");
+  pmeth_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_method_st");
+  points_to_evp_pkey_method_st pmeth_ptr;
+  points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr EVP_PKEY_OP_ENCRYPT;
 
   out_ptr <- crucible_alloc (llvm_array out_len i8);
 
@@ -23,7 +54,7 @@ let EVP_PKEY_encrypt_spec out_len in_len = do {
 
   // TODO: Fill these params in properly
   crucible_execute_func
-    [ crucible_null
+    [ ctx_ptr
     , out_ptr
     , out_len_ptr
     , in_ptr
