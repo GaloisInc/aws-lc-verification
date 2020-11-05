@@ -8,16 +8,42 @@ m <- llvm_load_module "../../build/llvm/crypto/crypto_test.bc";
 include "../common/helpers.saw";
 
 let EVP_PKEY_OP_ENCRYPT = 64;
+let RSA_PKEY_CTX_SIZE = eval_int {{ (4 + 8 + 4 + 8 + 8 + 4 + 8 + 8 + 8) : [64] }};
 
-let points_to_evp_pkey_ctx_st ptr pmeth_ptr operation = do {
+let points_to_evp_pkey_ctx_st ptr pmeth_ptr pkey_ptr operation data_ptr = do {
   crucible_points_to (crucible_field ptr "pmeth") pmeth_ptr;
+  crucible_points_to (crucible_field ptr "pkey") pkey_ptr;
   crucible_points_to (crucible_field ptr "operation")
                      (crucible_term {{ `operation : [32] }});
+  crucible_points_to (crucible_field ptr "data") data_ptr;
 };
 
 let points_to_evp_pkey_method_st ptr = do {
   crucible_points_to (crucible_field ptr "encrypt")
                      (crucible_global "pkey_rsa_encrypt");
+};
+
+let points_to_evp_pkey_st ptr rsa_ptr = do {
+  crucible_points_to (crucible_field ptr "pkey") rsa_ptr;
+  crucible_points_to (crucible_field ptr "ameth")
+                     (crucible_global "rsa_asn1_meth");
+};
+
+// TODO: This implements the default RSA_METHOD, which is all NULL.  Do we want
+// to support non-default RSA_METHOD structs?
+let points_to_rsa_meth_st ptr = do {
+  crucible_points_to (crucible_field ptr "size") crucible_null;
+};
+
+let points_to_rsa_st ptr meth_ptr n_ptr = do {
+  crucible_points_to (crucible_field ptr "meth") meth_ptr;
+  crucible_points_to (crucible_field ptr "n") n_ptr;
+};
+
+let points_to_bignum_st ptr d_ptr width = do {
+  crucible_points_to (crucible_field ptr "d") d_ptr;
+  crucible_points_to (crucible_field ptr "width")
+                     (crucible_term {{ `width : [32] }});
 };
 
 /*
@@ -34,16 +60,36 @@ let rsa_st_init = do {
 
 // TODO: Verify this still works after reverting change to OPENSSL_PUT_ERROR
 // (Initially changed because it requires some pthread functions and is
-// orthogonal to what we want to prove)
-// TODO: out_len must be >= key_len
-let EVP_PKEY_encrypt_spec out_len in_len = do {
+// orthogonal to what we want to prove).
+// Potential problems:
+//  * p_rsa.c:318: rsa->n might be underconstrained and trigger this
+//    OPENSSL_PUT_ERROR.  Just need to properly set n to fix this.
+// TODO: out_len must be >= modulus_words * 8
+let EVP_PKEY_encrypt_spec out_len in_len modulus_words = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
   
   ctx_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_ctx_st");
   pmeth_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_method_st");
   points_to_evp_pkey_method_st pmeth_ptr;
-  points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr EVP_PKEY_OP_ENCRYPT;
+  pkey_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_st");
+  rsa_ptr <- crucible_alloc (llvm_struct "struct.rsa_st");
+  meth_ptr <- crucible_alloc (llvm_struct "struct.rsa_meth_st");
+  points_to_rsa_meth_st meth_ptr;
+  // TODO: Why doesn't SAW like n?  Is it maybe supposed to be const?  If I
+  // remove line 44, proof fails on bn.c:434:25, and with line 44, it failes on
+  // bn.c:434:21, implying the problem is with bn in that function, rather than
+  // d?  But then why does line 433 go through just fine?  Maybe I'm not
+  // allocating a large enough bn->d?
+  n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  n_d_ptr <- crucible_alloc (llvm_array modulus_words i64);
+  points_to_bignum_st n_ptr n_d_ptr modulus_words;
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr;
+  points_to_evp_pkey_st pkey_ptr rsa_ptr;
+  // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
+  // careful* with getting the contents of this right.
+  data_ptr <- crucible_alloc (llvm_array RSA_PKEY_CTX_SIZE i8);
+  points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr pkey_ptr EVP_PKEY_OP_ENCRYPT data_ptr;
 
   out_ptr <- crucible_alloc (llvm_array out_len i8);
 
@@ -67,5 +113,5 @@ let EVP_PKEY_encrypt_spec out_len in_len = do {
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   []
   true
-  (EVP_PKEY_encrypt_spec 200 100)
+  (EVP_PKEY_encrypt_spec 64 32 8)
   (w4_unint_yices []);
