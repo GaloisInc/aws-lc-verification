@@ -8,7 +8,11 @@ m <- llvm_load_module "../../build/llvm/crypto/crypto_test.bc";
 include "../common/helpers.saw";
 
 let EVP_PKEY_OP_ENCRYPT = 64;
-let RSA_PKEY_CTX_SIZE = eval_int {{ (4 + 8 + 4 + 8 + 8 + 4 + 8 + 8 + 8) : [64] }};
+let RSA_NO_PADDING = 3;
+//let RSA_PKEY_CTX_SIZE = eval_int {{ (4 + 8 + 4 + 8 + 8 + 4 + 8 + 8 + 8) : [64] }};
+let RSA_PKEY_CTX_SIZE = eval_int {{ (8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8) : [64] }};
+
+let PAD_MODE_IDX = 16;
 
 let points_to_evp_pkey_ctx_st ptr pmeth_ptr pkey_ptr operation data_ptr = do {
   crucible_points_to (crucible_field ptr "pmeth") pmeth_ptr;
@@ -44,6 +48,11 @@ let points_to_bignum_st ptr d_ptr width = do {
   crucible_points_to (crucible_field ptr "d") d_ptr;
   crucible_points_to (crucible_field ptr "width")
                      (crucible_term {{ `width : [32] }});
+};
+
+let points_to_rsa_pkey_ctx ptr = do {
+  crucible_points_to_untyped (crucible_elem ptr PAD_MODE_IDX)
+                             (crucible_term {{ `RSA_NO_PADDING : [32] }});
 };
 
 /*
@@ -82,7 +91,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_words = do {
   // d?  But then why does line 433 go through just fine?  Maybe I'm not
   // allocating a large enough bn->d?
   n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  n_d_ptr <- crucible_alloc (llvm_array modulus_words i64);
+  (n_d, n_d_ptr) <- ptr_to_fresh "n_d" (llvm_array modulus_words i64);
   points_to_bignum_st n_ptr n_d_ptr modulus_words;
   points_to_rsa_st rsa_ptr meth_ptr n_ptr;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
