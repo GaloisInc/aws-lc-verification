@@ -43,9 +43,10 @@ let points_to_rsa_meth_st ptr = do {
   crucible_points_to (crucible_field ptr "size") crucible_null;
 };
 
-let points_to_rsa_st ptr meth_ptr n_ptr = do {
+let points_to_rsa_st ptr meth_ptr n_ptr e_ptr = do {
   crucible_points_to (crucible_field ptr "meth") meth_ptr;
   crucible_points_to (crucible_field ptr "n") n_ptr;
+  crucible_points_to (crucible_field ptr "e") e_ptr;
 };
 
 let points_to_bignum_st ptr d_ptr width = do {
@@ -94,15 +95,15 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_words = do {
   rsa_ptr <- crucible_alloc (llvm_struct "struct.rsa_st");
   meth_ptr <- crucible_alloc (llvm_struct "struct.rsa_meth_st");
   points_to_rsa_meth_st meth_ptr;
-  // TODO: Why doesn't SAW like n?  Is it maybe supposed to be const?  If I
-  // remove line 44, proof fails on bn.c:434:25, and with line 44, it failes on
-  // bn.c:434:21, implying the problem is with bn in that function, rather than
-  // d?  But then why does line 433 go through just fine?  Maybe I'm not
-  // allocating a large enough bn->d?
   n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   (n_d, n_d_ptr) <- ptr_to_fresh "n_d" (llvm_array modulus_words i64);
   points_to_bignum_st n_ptr n_d_ptr modulus_words;
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr;
+  e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
+  // e_d must be 33 bits or fewer wide
+  crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
+  points_to_bignum_st e_ptr e_d_ptr 1;
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
