@@ -10,9 +10,13 @@ include "../common/helpers.saw";
 let EVP_PKEY_OP_ENCRYPT = 64;
 let RSA_NO_PADDING = 3;
 //let RSA_PKEY_CTX_SIZE = eval_int {{ (4 + 8 + 4 + 8 + 8 + 4 + 8 + 8 + 8) : [64] }};
-let RSA_PKEY_CTX_SIZE = eval_int {{ (8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8) : [64] }};
-
-let PAD_MODE_IDX = 16;
+//let RSA_PKEY_CTX_SIZE = eval_int {{ (8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8) : [64] }};
+// RSA_PKEY_CTX is a mix of 9 ints and pointers.  However, no two ints appear
+// consecutively in the struct, so the compiler must pad them out with an extra
+// 32 bits on the end.  This combined with little-endian encoding means we can
+// abstract over the struct as an array of 9 64-bit integers.
+let RSA_PKEY_CTX_WORDS = 9;
+let PAD_MODE_IDX = 2;
 
 let points_to_evp_pkey_ctx_st ptr pmeth_ptr pkey_ptr operation data_ptr = do {
   crucible_points_to (crucible_field ptr "pmeth") pmeth_ptr;
@@ -51,8 +55,13 @@ let points_to_bignum_st ptr d_ptr width = do {
 };
 
 let points_to_rsa_pkey_ctx ptr = do {
-  crucible_points_to_untyped (crucible_elem ptr PAD_MODE_IDX)
-                             (crucible_term {{ `RSA_NO_PADDING : [32] }});
+  // `pad_mode` is technically a 32 bit integer, but the compiler must pad the
+  // space to 64 bits as the following element in the struct is a pointer.
+  // We can treat this int like a 64-bit value as little-endian encoding
+  // ensures the low order bytes end up at the lower address and fit in the 32
+  // bits dedicated to the `pad_mode` field.
+  crucible_points_to (crucible_elem ptr PAD_MODE_IDX)
+                     (crucible_term {{ `RSA_NO_PADDING : [64] }});
 };
 
 /*
@@ -97,7 +106,8 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_words = do {
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
-  data_ptr <- crucible_alloc (llvm_array RSA_PKEY_CTX_SIZE i8);
+  data_ptr <- crucible_alloc (llvm_array RSA_PKEY_CTX_WORDS i64);
+  points_to_rsa_pkey_ctx data_ptr;
   points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr pkey_ptr EVP_PKEY_OP_ENCRYPT data_ptr;
 
   out_ptr <- crucible_alloc (llvm_array out_len i8);
