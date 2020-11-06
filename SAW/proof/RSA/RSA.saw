@@ -18,6 +18,47 @@ let RSA_NO_PADDING = 3;
 let RSA_PKEY_CTX_WORDS = 9;
 let PAD_MODE_IDX = 2;
 
+// TODO: Put this in a common file with the SHA memory specs?
+let OPENSSL_malloc_spec size = do {
+  crucible_execute_func [crucible_term {{ `size : [64] }}];
+  ptr <- crucible_alloc_aligned 128 (llvm_array size (llvm_int 8));
+  crucible_return ptr;
+};
+
+// Assume `OPENSSL_malloc` satisfies `OPENSSL_malloc_spec`
+// TODO: I think the 48 byte malloc applies to rsa_impl.c:284 but it's not
+// clear to me why rsa_size would have to be 48 bytes.  It seems like it could
+// be any value between 0 and the modulus size in bytes (64 with the current
+// setting).
+/*
+OPENSSL_malloc_ov_48 <- crucible_llvm_unsafe_assume_spec
+  m
+  "OPENSSL_malloc"
+  (OPENSSL_malloc_spec 48);
+// TODO: Where do these mallocs come from?
+OPENSSL_malloc_ov_256 <- crucible_llvm_unsafe_assume_spec
+  m
+  "OPENSSL_malloc"
+  (OPENSSL_malloc_spec 256);
+OPENSSL_malloc_ov_40 <- crucible_llvm_unsafe_assume_spec
+  m
+  "OPENSSL_malloc"
+  (OPENSSL_malloc_spec 40);
+  */
+
+/*
+malloc_nums <- for (eval_list {{ [0 .. 256 : [64]] }})
+  (\x -> (return (eval_int x)) : (TopLevel Int));
+  */
+
+// TODO: Where are all of these allocs comming from?  Run with --sim-verbose=3
+// for stack traces on them and double check they're sensible.
+let malloc_nums = [24, 32, 40, 48, 256];
+
+OPENSSL_malloc_ovs <- for malloc_nums
+  (\x -> crucible_llvm_unsafe_assume_spec m "OPENSSL_malloc" (OPENSSL_malloc_spec x));
+
+
 // value_barrier_w just returns its input (it exists to prevent the compiler
 // from unding constant-time code)
 let value_barrier_w_spec = do {
@@ -144,7 +185,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_words = do {
 };
 
 crucible_llvm_verify m "EVP_PKEY_encrypt"
-  [value_barrier_w_ov]
+  (concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
   (EVP_PKEY_encrypt_spec 64 32 8)
   (w4_unint_yices []);
