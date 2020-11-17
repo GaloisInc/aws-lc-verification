@@ -227,5 +227,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat OPENSSL_free_nonnull_ovs [value_barrier_w_ov, OPENSSL_malloc_ov, OPENSSL_free_null_ov])
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
-  (EVP_PKEY_encrypt_spec 64 32 64)
-  (w4_unint_yices []);
+  (EVP_PKEY_encrypt_spec 64 64 64)
+  do {
+    (w4_unint_yices []);
+  };
