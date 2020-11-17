@@ -26,6 +26,22 @@ let OPENSSL_malloc_spec = do {
   crucible_return ptr;
 };
 
+let OPENSSL_free_nonnull_spec size = do {
+  ptr <- crucible_alloc (llvm_array size (llvm_int 8));
+  crucible_execute_func [ptr];
+};
+
+
+let OPENSSL_free_null_spec = do {
+  crucible_execute_func [crucible_null];
+};
+
+OPENSSL_free_null_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "OPENSSL_free"
+  OPENSSL_free_null_spec;
+
+
 // Assume `OPENSSL_malloc` satisfies `OPENSSL_malloc_spec`
 // TODO: I think the 48 byte malloc applies to rsa_impl.c:284 but it's not
 // clear to me why rsa_size would have to be 48 bytes.  It seems like it could
@@ -65,6 +81,13 @@ OPENSSL_malloc_ov <- crucible_llvm_unsafe_assume_spec
   m
   "OPENSSL_malloc"
   OPENSSL_malloc_spec;
+
+// TODO: Remove the 24 once you get the first thing to free here
+let free_nums = [24];
+OPENSSL_free_nonnull_ovs <- for free_nums
+  (\x -> crucible_llvm_unsafe_assume_spec m
+         "OPENSSL_free"
+         (OPENSSL_free_nonnull_spec x));
 
 // value_barrier_w just returns its input (it exists to prevent the compiler
 // from unding constant-time code)
@@ -201,7 +224,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
 };
 
 crucible_llvm_verify m "EVP_PKEY_encrypt"
-  [value_barrier_w_ov, OPENSSL_malloc_ov]
+  (concat OPENSSL_free_nonnull_ovs [value_barrier_w_ov, OPENSSL_malloc_ov, OPENSSL_free_null_ov])
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
   (EVP_PKEY_encrypt_spec 64 32 64)
