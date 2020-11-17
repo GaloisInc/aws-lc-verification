@@ -19,10 +19,16 @@ let RSA_PKEY_CTX_WORDS = 9;
 let PAD_MODE_IDX = 2;
 
 // TODO: Put this in a common file with the SHA memory specs?
-let OPENSSL_malloc_spec = do {
+let OPENSSL_malloc_sym_spec = do {
   size <- crucible_fresh_var "size" i64;
   crucible_execute_func [crucible_term size];
   ptr <- crucible_symbolic_alloc false 16 size;
+  crucible_return ptr;
+};
+
+let OPENSSL_malloc_spec size = do {
+  crucible_execute_func [crucible_term {{ `size : [64] }}];
+  ptr <- crucible_alloc_aligned 128 (llvm_array size (llvm_int 8));
   crucible_return ptr;
 };
 
@@ -70,17 +76,15 @@ malloc_nums <- for (eval_list {{ [0 .. 256 : [64]] }})
 
 // TODO: Where are all of these allocs comming from?  Run with --sim-verbose=3
 // for stack traces on them and double check they're sensible.
-/*
 let malloc_nums = [24, 32, 40, 48, 256];
 
 OPENSSL_malloc_ovs <- for malloc_nums
   (\x -> crucible_llvm_unsafe_assume_spec m "OPENSSL_malloc" (OPENSSL_malloc_spec x));
 
-  */
-OPENSSL_malloc_ov <- crucible_llvm_unsafe_assume_spec
+OPENSSL_malloc_sym_ov <- crucible_llvm_unsafe_assume_spec
   m
   "OPENSSL_malloc"
-  OPENSSL_malloc_spec;
+  OPENSSL_malloc_sym_spec;
 
 // TODO: Remove the 24 once you get the first thing to free here
 let free_nums = [24];
@@ -209,7 +213,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
   out_len_ptr <- crucible_alloc i64;
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
-  in_ptr <- crucible_alloc (llvm_array in_len i8);
+  (input, in_ptr) <- ptr_to_fresh_readonly "input" (llvm_array in_len i8);
 
   // TODO: Fill these params in properly
   crucible_execute_func
@@ -224,7 +228,8 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
 };
 
 crucible_llvm_verify m "EVP_PKEY_encrypt"
-  (concat OPENSSL_free_nonnull_ovs [value_barrier_w_ov, OPENSSL_malloc_ov, OPENSSL_free_null_ov])
+  (concat OPENSSL_malloc_ovs
+          [value_barrier_w_ov, OPENSSL_free_null_ov, OPENSSL_malloc_sym_ov])
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
   (EVP_PKEY_encrypt_spec 64 64 64)
