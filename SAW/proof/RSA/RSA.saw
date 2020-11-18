@@ -18,6 +18,15 @@ let RSA_NO_PADDING = 3;
 let RSA_PKEY_CTX_WORDS = 9;
 let PAD_MODE_IDX = 2;
 
+let points_to_bignum_st ptr d_ptr dmax = do {
+  crucible_points_to (crucible_field ptr "d") d_ptr;
+  crucible_points_to (crucible_field ptr "width") (crucible_term {{ `dmax : [32] }});
+  crucible_points_to (crucible_field ptr "dmax") (crucible_term {{ `dmax : [32] }});
+  crucible_points_to (crucible_field ptr "neg") (crucible_term {{ 0 : [32] }});
+  crucible_points_to (crucible_field ptr "flags") (crucible_term {{ 0 : [32] }});
+};
+
+
 // TODO: Re-enable asserts on montgomery_inv.c:120 and 160 (disabled because SAW is slow
 // to reason about it)
 
@@ -63,6 +72,27 @@ let CRYPTO_MUTEX_lock_spec = do {
   crucible_execute_func [lock_ptr];
 };
 
+let BN_num_bytes_n_spec modulus_words = do {
+  n_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  (n_d, n_d_ptr) <- ptr_to_fresh_readonly "n_d" (llvm_array modulus_words i64);
+  points_to_bignum_st n_ptr n_d_ptr modulus_words;
+  // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
+  // `modulus_bytes` long.
+  // TODO: Handle case where modulus_bytes is not a multiple of 8
+  crucible_precond {{ (n_d ! 0) >= (2^^56) }};
+  // `n_d` must be odd
+  // TODO: I think this somehow breaks when OPENSSL_PUT_ERROR is properly
+  // defined?
+  crucible_precond {{ ((n_d @ 0) && 1) == 1 }};
+  crucible_execute_func [n_ptr];
+  crucible_return (crucible_term {{ (`modulus_words * 8) : [32] }});
+};
+
+BN_num_bytes_n_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_num_bytes"
+  (BN_num_bytes_n_spec 8);
+
 OPENSSL_realloc_nonnull_ov <- crucible_llvm_unsafe_assume_spec
   m
   "OPENSSL_realloc"
@@ -70,7 +100,7 @@ OPENSSL_realloc_nonnull_ov <- crucible_llvm_unsafe_assume_spec
   // seem to matter?  But the symbolic version doesn't work at all.  I guess it
   // works because the C only knows it's an i8*, but doesn't know how big the
   // underlying memory is
-  (OPENSSL_realloc_nonnull_spec 24 64);
+  (OPENSSL_realloc_nonnull_spec 32 64);
 
 OPENSSL_realloc_null_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -196,13 +226,37 @@ let points_to_rsa_st ptr meth_ptr n_ptr e_ptr = do {
   crucible_points_to (crucible_field ptr "mont_n") crucible_null;
 };
 
-let points_to_bignum_st ptr d_ptr width = do {
-  crucible_points_to (crucible_field ptr "d") d_ptr;
-  crucible_points_to (crucible_field ptr "width")
-                     (crucible_term {{ `width : [32] }});
-  crucible_points_to (crucible_field ptr "neg")
-                     (crucible_term {{ 0 : [32] }});
+let BN_div_spec numerator_dmax divisor_dmax = do {
+  //rem_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  //points_to_bignum_st rem_ptr crucible_null 0;
+  //numerator_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  //(numerator, numerator_d_ptr) <- ptr_to_fresh_readonly "numerator" (llvm_array numerator_dmax i64);
+  numerator_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (numerator, numerator_d_ptr) <- ptr_to_fresh "numerator" (llvm_array numerator_dmax i64);
+  points_to_bignum_st numerator_ptr numerator_d_ptr numerator_dmax;
+  divisor_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  (divisor, divisor_d_ptr) <- ptr_to_fresh_readonly "divisor" (llvm_array divisor_dmax i64);
+  points_to_bignum_st divisor_ptr divisor_d_ptr divisor_dmax;
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+  crucible_execute_func
+    [ crucible_null // quotient_ptr
+    , numerator_ptr // rem_ptr
+    , numerator_ptr
+    , divisor_ptr
+    , ctx_ptr
+    ];
+
+  let rem_ptr = numerator_ptr;
+  rem_d_ptr <- crucible_alloc (llvm_array divisor_dmax i64);
+  crucible_points_to rem_d_ptr (crucible_term {{ take`{divisor_dmax} (reverse (split`{each=64} ((join (reverse numerator)) % (0 # (join (reverse divisor)))))) }});
+  points_to_bignum_st rem_ptr rem_d_ptr divisor_dmax;
+  crucible_return (crucible_term {{ 1 : [32] }});
 };
+
+BN_div_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_div"
+  (BN_div_spec 13 6);  // TODO: Where did these values come from?
 
 let points_to_rsa_pkey_ctx ptr = do {
   // `pad_mode` is technically a 32 bit integer, but the compiler must pad the
@@ -245,7 +299,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
   meth_ptr <- crucible_alloc (llvm_struct "struct.rsa_meth_st");
   points_to_rsa_meth_st meth_ptr;
   n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  let modulus_words = eval_int {{ ((`modulus_bytes + (`modulus_bytes % 8)) / 8) : [64]}};
+  let modulus_words = eval_int {{ ((`modulus_bytes + 7) / 8) : [64]}};
   (n_d, n_d_ptr) <- ptr_to_fresh "n_d" (llvm_array modulus_words i64);
   points_to_bignum_st n_ptr n_d_ptr modulus_words;
   // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
@@ -302,10 +356,13 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
            CRYPTO_MUTEX_lock_write_ov,
            CRYPTO_MUTEX_unlock_write_ov,
            OPENSSL_realloc_null_ov,
-           OPENSSL_realloc_nonnull_ov])
+           OPENSSL_realloc_nonnull_ov,
+           BN_div_ov,
+           BN_num_bytes_n_ov])
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
   (EVP_PKEY_encrypt_spec 64 64 64)
   do {
+    //(print_goal);
     (w4_unint_yices []);
   };
