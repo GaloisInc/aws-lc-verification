@@ -40,6 +40,19 @@ let OPENSSL_free_nonnull_spec size = do {
   crucible_execute_func [ptr];
 };
 
+let OPENSSL_realloc_null_spec new_size = do {
+  crucible_execute_func [crucible_null, crucible_term {{ `new_size : [64] }}];
+  ptr <- crucible_alloc_aligned 128 (llvm_array new_size (llvm_int 8));
+  crucible_return ptr;
+};
+
+let OPENSSL_realloc_nonnull_spec old_size new_size = do {
+  old_ptr <- crucible_alloc (llvm_array old_size (llvm_int 8));
+  crucible_execute_func [ old_ptr, crucible_term {{ `new_size : [64] }} ];
+  new_ptr <- crucible_alloc_aligned 128 (llvm_array new_size (llvm_int 8));
+  crucible_return new_ptr;
+};
+
 
 let OPENSSL_free_null_spec = do {
   crucible_execute_func [crucible_null];
@@ -49,6 +62,20 @@ let CRYPTO_MUTEX_lock_spec = do {
   lock_ptr <- crucible_alloc (llvm_struct "union.crypto_mutex_st");
   crucible_execute_func [lock_ptr];
 };
+
+OPENSSL_realloc_nonnull_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "OPENSSL_realloc"
+  // TODO: I'm not sure 32 is even the right old_size.  It surprisingly doesn't
+  // seem to matter?  But the symbolic version doesn't work at all.  I guess it
+  // works because the C only knows it's an i8*, but doesn't know how big the
+  // underlying memory is
+  (OPENSSL_realloc_nonnull_spec 24 64);
+
+OPENSSL_realloc_null_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "OPENSSL_realloc"
+  (OPENSSL_realloc_null_spec 256);
 
 OPENSSL_free_null_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -273,7 +300,9 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
            CRYPTO_MUTEX_lock_read_ov,
            CRYPTO_MUTEX_unlock_read_ov,
            CRYPTO_MUTEX_lock_write_ov,
-           CRYPTO_MUTEX_unlock_write_ov ])
+           CRYPTO_MUTEX_unlock_write_ov,
+           OPENSSL_realloc_null_ov,
+           OPENSSL_realloc_nonnull_ov])
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
   (EVP_PKEY_encrypt_spec 64 64 64)
