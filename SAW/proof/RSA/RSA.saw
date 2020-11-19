@@ -425,8 +425,8 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
      OPENSSL_realloc_null_ov,
-     OPENSSL_realloc_nonnull_ov//,
-     //BN_div_ov,
+     OPENSSL_realloc_nonnull_ov,
+     BN_div_ov//,
      //bn_mont_n0_ov,
      //bn_minimal_width_n_ov,
      /*BN_num_bytes_n_ov*/]))
