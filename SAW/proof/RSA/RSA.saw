@@ -111,6 +111,30 @@ let bn_mont_n0_spec = do {
   crucible_return (crucible_term ret);
 };
 
+/*
+let points_to_bn_mont_ctx_st ptr N = do {
+  crucible_points_to (crucible_field ptr "N") (crucible_term N);
+};
+*/
+
+let wrap_BN_mod_exp_mont_spec = do {
+  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  //(m, m_ptr) <- ptr_to_fresh "m" (llvm_struct "struct.bignum_st");
+  ctx_ptr <- crucible_alloc (llvm_struct "struct.bignum_ctx");
+  mont_ptr <- crucible_alloc (llvm_struct "struct.bn_mont_ctx_st");
+  let m_ptr = crucible_field mont_ptr "N";
+  //points_to_bn_mont_ctx_st mont_ptr m;
+  crucible_execute_func [r_ptr, a_ptr, p_ptr, mont_ptr, ctx_ptr, m_ptr];
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+BN_mod_exp_mont_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "wrap_BN_mod_exp_mont"
+  (wrap_BN_mod_exp_mont_spec);
+
 bn_mont_n0_ov <- crucible_llvm_unsafe_assume_spec
   m
   "bn_mont_n0"
@@ -426,6 +450,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      CRYPTO_MUTEX_unlock_write_ov,
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
+     BN_mod_exp_mont_ov,
      BN_div_ov//,
      //bn_mont_n0_ov,
      //bn_minimal_width_n_ov,
