@@ -394,6 +394,11 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
   (input, in_ptr) <- ptr_to_fresh_readonly "input" (llvm_array in_len i8);
+  // TODO: This effectively makes input < n_d (whcih is required), but it does
+  // so in a hacky way.  This precondition should directly reference n_d.
+  // The interface is dumb so `input` is a big endian number but `n_d` is
+  // little endian...
+  crucible_precond {{ (input @ 0) == 0 }};
 
   // TODO: Fill these params in properly
   crucible_execute_func
