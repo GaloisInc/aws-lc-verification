@@ -498,6 +498,13 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
     , crucible_term {{ `in_len : [64] }}
     ];
 
+  // TODO: Uncommenting these causes SAW to hang on:
+  //  Symbolic simulation completed with side conditions.
+  out <- crucible_fresh_var "out" (llvm_array out_len i8);
+  crucible_points_to out_ptr (crucible_term out);
+
+  crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
@@ -526,7 +533,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   true
   (EVP_PKEY_encrypt_spec 64 64 64)
   do {
-    //(simplify basic_ss);
-    //(print_goal);
+    (simplify basic_ss);
+    (print_goal);
     (w4_unint_yices []);
   };
