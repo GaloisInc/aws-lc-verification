@@ -182,7 +182,7 @@ let BN_CTX_free_null_spec = do {
 
 let BN_bn2bin_padded_same_size_spec words = do {
   let bytes = eval_int {{ (`words * 8) : [64] }};
-  (out, out_ptr) <- ptr_to_fresh "out" (llvm_array bytes i8);
+  out_ptr <- crucible_alloc (llvm_array bytes i8);
 
   in_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
   (in_d, in_d_ptr) <- ptr_to_fresh_readonly "in_d" (llvm_array words i64);
@@ -496,7 +496,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
   points_to_rsa_pkey_ctx data_ptr;
   points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr pkey_ptr EVP_PKEY_OP_ENCRYPT data_ptr;
 
-  (out, out_ptr) <- ptr_to_fresh "out" (llvm_array out_len i8);
+  out_ptr <- crucible_alloc (llvm_array out_len i8);
 
   out_len_ptr <- crucible_alloc i64;
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
