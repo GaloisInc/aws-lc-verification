@@ -137,7 +137,21 @@ let wrap_BN_mod_exp_mont_spec r_words = do {
   a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
   p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
   //(m, m_ptr) <- ptr_to_fresh "m" (llvm_struct "struct.bignum_st");
-  ctx_ptr <- crucible_alloc (llvm_struct "struct.bignum_ctx");
+  // TODO: Technically ctx_ptr is not a const input to BN_mod_exp_mont_spec.
+  // However, ctx_ptr is pretty much just a stack of bignums to use as temp
+  // values, and BN_mod_exp_mont_spec pops off values that it pushes to the
+  // stack, so from the algorithm's perspective, the stack is unchanged.  In
+  // reality though, it's possible for BN_mod_exp_mont_spec to push enough to
+  // realloc the stack (though I'm not sure whether this happens), and more
+  // importantly, popping the stack does not zero it, so the memory itself will
+  // be different for values beyond the tip of the stack.
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+  /*
+  points_to_bignum_ctx ctx_ptr;
+  (indexes, indexes_ptr) <- ptr_to_fresh "indexes" (llvm_array 64 i64);
+  crucible_precond {{ (indexes @ 0) == 0 }};
+  points_to_BN_STACK (crucible_field ctx_ptr "stack") indexes_ptr;
+  */
   mont_ptr <- crucible_alloc (llvm_struct "struct.bn_mont_ctx_st");
   let m_ptr = crucible_field mont_ptr "N";
   //points_to_bn_mont_ctx_st mont_ptr m;
@@ -147,10 +161,11 @@ let wrap_BN_mod_exp_mont_spec r_words = do {
   points_to_bignum_st r_ptr r_d_ptr r_words;
 
   // TODO: These ctx postconditions should be in the precondition too
+  /*
   points_to_bignum_ctx ctx_ptr;
-  (indexes, indexes_ptr) <- ptr_to_fresh "indexes" (llvm_array BN_CTX_START_FRAMES i64);
   crucible_postcond {{ (indexes @ 0) == 0 }};
   points_to_BN_STACK (crucible_field ctx_ptr "stack") indexes_ptr;
+  */
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
@@ -501,8 +516,8 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_mod_exp_mont_ov,
-     BN_CTX_free_null_ov,
-     BN_CTX_free_nonnull_ov,
+     //BN_CTX_free_null_ov,
+     //BN_CTX_free_nonnull_ov,
      BN_div_ov//,
      //bn_mont_n0_ov,
      //bn_minimal_width_n_ov,
