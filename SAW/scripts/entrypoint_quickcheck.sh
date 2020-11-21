@@ -14,4 +14,4 @@ PATCH=$(realpath ./patch)
 ./scripts/build_x86.sh
 ./scripts/build_llvm.sh
 ./scripts/post_build.sh
-./scripts/quickcheck.sh
+#./scripts/quickcheck.sh
