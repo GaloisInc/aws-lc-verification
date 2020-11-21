@@ -1,0 +1,51 @@
+diff --git a/third_party/boringssl/crypto/fipsmodule/bn/montgomery_inv.c b/third_party/boringssl/crypto/fipsmodule/bn/montgomery_inv.c
+index c80873f57..eca25c508 100644
+--- a/third_party/boringssl/crypto/fipsmodule/bn/montgomery_inv.c
++++ b/third_party/boringssl/crypto/fipsmodule/bn/montgomery_inv.c
+@@ -117,8 +117,11 @@ static uint64_t bn_neg_inv_mod_r_u64(uint64_t n) {
+   // 2**(lg r - i) == u*2*alpha - v*beta.
+   for (size_t i = 0; i < LG_LITTLE_R; ++i) {
+ #if BN_BITS2 == 64 && defined(BN_ULLONG)
++    // TODO: Add these asserts back in
++    /*
+     assert((BN_ULLONG)(1) << (LG_LITTLE_R - i) ==
+            ((BN_ULLONG)u * 2 * alpha) - ((BN_ULLONG)v * beta));
++     */
+ #endif
+ 
+     // Delete a common factor of 2 in u and v if |u| is even. Otherwise, set
+@@ -154,7 +157,7 @@ static uint64_t bn_neg_inv_mod_r_u64(uint64_t n) {
+ 
+   // The invariant now shows that u*r - v*n == 1 since r == 2 * alpha.
+ #if BN_BITS2 == 64 && defined(BN_ULLONG)
+-  assert(1 == ((BN_ULLONG)u * 2 * alpha) - ((BN_ULLONG)v * beta));
++  //assert(1 == ((BN_ULLONG)u * 2 * alpha) - ((BN_ULLONG)v * beta));
+ #endif
+ 
+   return v;
+diff --git a/third_party/boringssl/crypto/fipsmodule/rsa/rsa_impl.c b/third_party/boringssl/crypto/fipsmodule/rsa/rsa_impl.c
+index 2d9a9c9fa..98d904b86 100644
+--- a/third_party/boringssl/crypto/fipsmodule/rsa/rsa_impl.c
++++ b/third_party/boringssl/crypto/fipsmodule/rsa/rsa_impl.c
+@@ -251,6 +251,12 @@ size_t rsa_default_size(const RSA *rsa) {
+   return BN_num_bytes(rsa->n);
+ }
+ 
++// TODO: Remove this once SAW is fixed to support the override
++static int wrap_BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
++                                const BN_MONT_CTX *mont, BN_CTX *ctx, const BIGNUM *m) {
++  return BN_mod_exp_mont(rr, a, p, m, ctx, mont);
++}
++
+ int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
+                 const uint8_t *in, size_t in_len, int padding) {
+   if (rsa->n == NULL || rsa->e == NULL) {
+@@ -319,7 +325,7 @@ int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
+   }
+ 
+   if (!BN_MONT_CTX_set_locked(&rsa->mont_n, &rsa->lock, rsa->n, ctx) ||
+-      !BN_mod_exp_mont(result, f, rsa->e, &rsa->mont_n->N, ctx, rsa->mont_n)) {
++      !wrap_BN_mod_exp_mont(result, f, rsa->e, rsa->mont_n, ctx, &rsa->mont_n->N)) {
+     goto err;
+   }
+ 
