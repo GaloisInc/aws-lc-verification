@@ -194,6 +194,8 @@ let BN_bn2bin_padded_same_size_spec words = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
+// TODO: Why doesn't the proof of this go through?  Does it have to do with the
+// re-interpret cast?
 BN_bn2bin_padded_same_size_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_bn2bin_padded"
@@ -526,6 +528,20 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
+
+/*
+crucible_llvm_verify m "BN_bn2bin_padded"
+  []
+  true
+  (BN_bn2bin_padded_same_size_spec 8)
+  do {
+    (simplify basic_ss);
+    (print_goal);
+    (w4_unint_yices []);
+  };
+  */
+
+
 
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
