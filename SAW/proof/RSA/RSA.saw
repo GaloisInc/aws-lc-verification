@@ -620,20 +620,22 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
   // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
   // `modulus_bytes` long.
   // TODO: Handle case where modulus_bytes is not a multiple of 8
-  //crucible_precond {{ (n_d ! 0) >= (2^^56) }};
+  crucible_precond {{ (n_d ! 0) >= (2^^56) }};
   // `n_d` must be odd
   // TODO: I think this somehow breaks when OPENSSL_PUT_ERROR is properly
   // defined?
-  //crucible_precond {{ ((n_d @ 0) && 1) == 1 }};
+  crucible_precond {{ ((n_d @ 0) && 1) == 1 }};
   //crucible_precond {{ ((split`{each=8} (join n_d)) @ (`modulus_bytes - 1)) > 0 }};
   // TODO: If `modulus_bytes` is not a multiple of the word
   // size (8), then `n_d` must have all bytes above `modulus_bytes` zeroed
   // out.
+  /*
   e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
   // e_d must be 33 bits or fewer wide
   //crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
   points_to_bignum_st e_ptr e_d_ptr 1;
+  */
 
   /*
   e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
