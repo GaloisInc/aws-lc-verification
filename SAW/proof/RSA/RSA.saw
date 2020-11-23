@@ -365,12 +365,14 @@ let points_to_evp_pkey_st ptr rsa_ptr = do {
 let points_to_rsa_meth_st ptr = do {
   crucible_points_to (crucible_field ptr "size") crucible_null;
   crucible_points_to (crucible_field ptr "decrypt") crucible_null;
+  crucible_points_to (crucible_field ptr "private_transform") crucible_null;
 };
 
-let points_to_rsa_st ptr meth_ptr n_ptr e_ptr = do {
+let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr = do {
   crucible_points_to (crucible_field ptr "meth") meth_ptr;
   crucible_points_to (crucible_field ptr "n") n_ptr;
   crucible_points_to (crucible_field ptr "e") e_ptr;
+  crucible_points_to (crucible_field ptr "d") d_ptr;
   // TODO: Should this field be null?  mont_n is a cache, and setting it to
   // forces the encrypt function to initialize the cache, which seems right
   // here.  Is there a reason it wouldn't be null?
@@ -498,7 +500,9 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
   // e_d must be 33 bits or fewer wide
   crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
   points_to_bignum_st e_ptr e_d_ptr 1;
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr;
+  // TODO: I just passed in nullptr for d_ptr here.  I think that should be
+  // fine, but if this proof breaks, that's one place to look
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr crucible_null;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -549,7 +553,7 @@ crucible_llvm_verify m "BN_bn2bin_padded"
   };
   */
 
-let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes = do {
+let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
   
@@ -567,11 +571,11 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes = do {
   // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
   // `modulus_bytes` long.
   // TODO: Handle case where modulus_bytes is not a multiple of 8
-  crucible_precond {{ (n_d ! 0) >= (2^^56) }};
+  //crucible_precond {{ (n_d ! 0) >= (2^^56) }};
   // `n_d` must be odd
   // TODO: I think this somehow breaks when OPENSSL_PUT_ERROR is properly
   // defined?
-  crucible_precond {{ ((n_d @ 0) && 1) == 1 }};
+  //crucible_precond {{ ((n_d @ 0) && 1) == 1 }};
   //crucible_precond {{ ((split`{each=8} (join n_d)) @ (`modulus_bytes - 1)) > 0 }};
   // TODO: If `modulus_bytes` is not a multiple of the word
   // size (8), then `n_d` must have all bytes above `modulus_bytes` zeroed
@@ -579,9 +583,23 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes = do {
   e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
   // e_d must be 33 bits or fewer wide
-  crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
+  //crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
   points_to_bignum_st e_ptr e_d_ptr 1;
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr;
+
+  /*
+  e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
+  // e_d must be 33 bits or fewer wide
+  //crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
+  points_to_bignum_st e_ptr e_d_ptr 1;
+  */
+
+  d_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (d_d, d_d_ptr) <- ptr_to_fresh "d_d" (llvm_array d_words i64);
+  points_to_bignum_st d_ptr d_d_ptr d_words;
+
+  // TODO: Passing null for e_ptr is OK if blinding is disabled
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr crucible_null d_ptr;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -612,10 +630,10 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes = do {
 
   // TODO: Uncommenting these causes SAW to hang on:
   //  Symbolic simulation completed with side conditions.
-  out' <- crucible_fresh_var "out" (llvm_array out_len i8);
-  crucible_points_to out_ptr (crucible_term out');
+  //out' <- crucible_fresh_var "out" (llvm_array out_len i8);
+  //crucible_points_to out_ptr (crucible_term out');
 
-  crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+  //crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
@@ -677,7 +695,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      /*BN_num_bytes_n_ov*/]))
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
-  (EVP_PKEY_decrypt_spec 64 64 64)
+  (EVP_PKEY_decrypt_spec 64 64 64 8)
   do {
     //(simplify basic_ss);
     //(print_goal);
