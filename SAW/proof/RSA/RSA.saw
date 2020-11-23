@@ -681,10 +681,10 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
 
   // TODO: Uncommenting these causes SAW to hang on:
   //  Symbolic simulation completed with side conditions.
-  //out' <- crucible_fresh_var "out" (llvm_array out_len i8);
-  //crucible_points_to out_ptr (crucible_term out');
+  out' <- crucible_fresh_var "out" (llvm_array out_len i8);
+  crucible_points_to out_ptr (crucible_term out');
 
-  //crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+  crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
