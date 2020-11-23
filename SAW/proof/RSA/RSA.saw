@@ -24,6 +24,8 @@ let BN_CTX_START_FRAMES = 32;
 let BN_STACK_INDEXES_IDX = 0;
 let BN_STACK_DEPTH_IDX = 1;
 
+let RSA_FLAG_NO_BLINDING = 8;
+
 let points_to_bignum_st ptr d_ptr dmax = do {
   crucible_points_to (crucible_field ptr "d") d_ptr;
   crucible_points_to (crucible_field ptr "width") (crucible_term {{ `dmax : [32] }});
@@ -194,6 +196,41 @@ let BN_bn2bin_padded_same_size_spec words = do {
   crucible_points_to out_ptr (crucible_term {{ reverse (split`{each=8} (join in_d)) }});
   crucible_return (crucible_term {{ 1 : [32] }});
 };
+
+let BN_mod_exp_mont_consttime_spec r_words = do {
+  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  m_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  // TODO: Technically ctx_ptr is not a const input to BN_mod_exp_mont_spec.
+  // However, ctx_ptr is pretty much just a stack of bignums to use as temp
+  // values, and BN_mod_exp_mont_spec pops off values that it pushes to the
+  // stack, so from the algorithm's perspective, the stack is unchanged.  In
+  // reality though, it's possible for BN_mod_exp_mont_spec to push enough to
+  // realloc the stack (though I'm not sure whether this happens), and more
+  // importantly, popping the stack does not zero it, so the memory itself will
+  // be different for values beyond the tip of the stack.
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
+  crucible_execute_func [r_ptr, a_ptr, p_ptr, m_ptr, ctx_ptr, mont_ptr];
+  //r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
+  points_to_bignum_st r_ptr r_d_ptr r_words;
+
+  // TODO: These ctx postconditions should be in the precondition too
+  /*
+  points_to_bignum_ctx ctx_ptr;
+  crucible_postcond {{ (indexes @ 0) == 0 }};
+  points_to_BN_STACK (crucible_field ctx_ptr "stack") indexes_ptr;
+  */
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+BN_mod_exp_mont_consttime_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_exp_mont_consttime"
+  (BN_mod_exp_mont_consttime_spec 8);
+
 
 // TODO: Why doesn't the proof of this go through?  Does it have to do with the
 // re-interpret cast?
@@ -373,7 +410,12 @@ let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr = do {
   crucible_points_to (crucible_field ptr "n") n_ptr;
   crucible_points_to (crucible_field ptr "e") e_ptr;
   crucible_points_to (crucible_field ptr "d") d_ptr;
+  // TODO: Do we want p and q?
   crucible_points_to (crucible_field ptr "p") crucible_null;
+  // TODO: Do we want blinding?
+  crucible_points_to (crucible_field ptr "flags")
+                     (crucible_term {{ `RSA_FLAG_NO_BLINDING : [32] }});
+
   // TODO: Should this field be null?  mont_n is a cache, and setting it to
   // forces the encrypt function to initialize the cache, which seems right
   // here.  Is there a reason it wouldn't be null?
@@ -694,6 +736,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      OPENSSL_realloc_nonnull_ov,
      BN_mod_exp_mont_ov,
      BN_bn2bin_padded_same_size_ov,
+     BN_mod_exp_mont_consttime_ov,
      //BN_CTX_free_null_ov,
      //BN_CTX_free_nonnull_ov,
      BN_div_ov//,
