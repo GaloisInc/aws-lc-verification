@@ -373,10 +373,17 @@ let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr = do {
   crucible_points_to (crucible_field ptr "n") n_ptr;
   crucible_points_to (crucible_field ptr "e") e_ptr;
   crucible_points_to (crucible_field ptr "d") d_ptr;
+  crucible_points_to (crucible_field ptr "p") crucible_null;
   // TODO: Should this field be null?  mont_n is a cache, and setting it to
   // forces the encrypt function to initialize the cache, which seems right
   // here.  Is there a reason it wouldn't be null?
   crucible_points_to (crucible_field ptr "mont_n") crucible_null;
+  // Must be null for ensure_fixed_copy
+  crucible_points_to (crucible_field ptr "d_fixed") crucible_null;
+  // private_key_frozen is a 1 bit bit-field of type `unsigned`, but the
+  // compiler allocates 8 bits for it
+  crucible_points_to (crucible_field ptr "private_key_frozen")
+                     (crucible_term {{ 0 : [8] }});
 };
 /*
 let BN_div_spec numerator_dmax divisor_dmax = do {
