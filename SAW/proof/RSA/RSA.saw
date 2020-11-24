@@ -9,6 +9,7 @@ include "../common/helpers.saw";
 
 let EVP_PKEY_OP_ENCRYPT = 64;
 let EVP_PKEY_OP_DECRYPT = 128;
+let RSA_PKCS1_PADDING = 1;
 let RSA_NO_PADDING = 3;
 //let RSA_PKEY_CTX_SIZE = eval_int {{ (4 + 8 + 4 + 8 + 8 + 4 + 8 + 8 + 8) : [64] }};
 //let RSA_PKEY_CTX_SIZE = eval_int {{ (8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8) : [64] }};
@@ -232,6 +233,23 @@ let bn_neg_inv_mod_r_u64_spec = do {
   ret <- crucible_fresh_var "ret" i64;
   crucible_return (crucible_term ret);
 };
+
+let rand_nonzero_spec size = do {
+  out_ptr <- crucible_alloc (llvm_array size i8);
+  crucible_execute_func [out_ptr, crucible_term {{ `size : [64] }}];
+
+  // TODO: Specify that all elements of `out` are nonzero
+  out <- crucible_fresh_var "out" (llvm_array size i8);
+  crucible_points_to out_ptr (crucible_term out);
+
+  // rand_nonzero always returns 1 because RAND_bytes always returns 1
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+rand_nonzero_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "rand_nonzero"
+  (rand_nonzero_spec 29);
 
 bn_neg_inv_mod_r_u64_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -503,14 +521,14 @@ BN_div_ov <- crucible_llvm_unsafe_assume_spec
   "BN_div"
   (BN_div_spec 8);  // TODO: Where did these values come from?
 
-let points_to_rsa_pkey_ctx ptr = do {
+let points_to_rsa_pkey_ctx ptr pad_mode = do {
   // `pad_mode` is technically a 32 bit integer, but the compiler must pad the
   // space to 64 bits as the following element in the struct is a pointer.
   // We can treat this int like a 64-bit value as little-endian encoding
   // ensures the low order bytes end up at the lower address and fit in the 32
   // bits dedicated to the `pad_mode` field.
   crucible_points_to (crucible_elem ptr PAD_MODE_IDX)
-                     (crucible_term {{ `RSA_NO_PADDING : [64] }});
+                     (crucible_term {{ `pad_mode : [64] }});
 };
 
 /*
@@ -532,7 +550,7 @@ let rsa_st_init = do {
 //  * p_rsa.c:318: rsa->n might be underconstrained and trigger this
 //    OPENSSL_PUT_ERROR.  Just need to properly set n to fix this.
 // TODO: out_len must be >= modulus_bytes
-let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
+let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
   
@@ -571,7 +589,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
   data_ptr <- crucible_alloc (llvm_array RSA_PKEY_CTX_WORDS i64);
-  points_to_rsa_pkey_ctx data_ptr;
+  points_to_rsa_pkey_ctx data_ptr pad_mode;
   points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr pkey_ptr EVP_PKEY_OP_ENCRYPT data_ptr;
 
   out_ptr <- crucible_alloc (llvm_array out_len i8);
@@ -595,8 +613,6 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes = do {
     , crucible_term {{ `in_len : [64] }}
     ];
 
-  // TODO: Uncommenting these causes SAW to hang on:
-  //  Symbolic simulation completed with side conditions.
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
   crucible_points_to out_ptr (crucible_term out');
 
@@ -668,7 +684,7 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
   data_ptr <- crucible_alloc (llvm_array RSA_PKEY_CTX_WORDS i64);
-  points_to_rsa_pkey_ctx data_ptr;
+  points_to_rsa_pkey_ctx data_ptr RSA_NO_PADDING;
   points_to_evp_pkey_ctx_st ctx_ptr pmeth_ptr pkey_ptr EVP_PKEY_OP_DECRYPT data_ptr;
 
   out_ptr <- crucible_alloc (llvm_array out_len i8);
@@ -702,6 +718,41 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
+// Padding mode: RSA_PKCS1_PADDING
+crucible_llvm_verify m "EVP_PKEY_encrypt"
+  (concat
+   OPENSSL_free_nonnull_ovs
+   (concat
+    OPENSSL_malloc_ovs
+    [value_barrier_w_ov,
+     OPENSSL_free_null_ov,
+     OPENSSL_malloc_sym_ov,
+     CRYPTO_MUTEX_lock_read_ov,
+     CRYPTO_MUTEX_unlock_read_ov,
+     CRYPTO_MUTEX_lock_write_ov,
+     CRYPTO_MUTEX_unlock_write_ov,
+     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_nonnull_ov,
+     BN_mod_exp_mont_ov,
+     BN_bn2bin_padded_same_size_ov,
+     bn_neg_inv_mod_r_u64_ov,
+     rand_nonzero_ov,
+     //BN_CTX_free_null_ov,
+     //BN_CTX_free_nonnull_ov,
+     BN_div_ov//,
+     //bn_mont_n0_ov,
+     //bn_minimal_width_n_ov,
+     /*BN_num_bytes_n_ov*/]))
+  //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
+  true
+  (EVP_PKEY_encrypt_spec 64 32 64 RSA_PKCS1_PADDING)
+  do {
+    //(simplify basic_ss);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
+
+// Padding mode: RSA_NO_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
    OPENSSL_free_nonnull_ovs
@@ -727,7 +778,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      /*BN_num_bytes_n_ov*/]))
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
-  (EVP_PKEY_encrypt_spec 64 64 64)
+  (EVP_PKEY_encrypt_spec 64 64 64 RSA_NO_PADDING)
   do {
     //(simplify basic_ss);
     //(print_goal);
