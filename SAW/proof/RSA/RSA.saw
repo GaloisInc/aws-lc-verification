@@ -226,6 +226,19 @@ let BN_mod_exp_mont_consttime_spec r_words = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
+let bn_neg_inv_mod_r_u64_spec = do {
+  n <- crucible_fresh_var "n" i64;
+  crucible_execute_func [crucible_term n];
+  ret <- crucible_fresh_var "ret" i64;
+  crucible_return (crucible_term ret);
+};
+
+bn_neg_inv_mod_r_u64_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "bn_neg_inv_mod_r_u64"
+  (bn_neg_inv_mod_r_u64_spec);
+
+
 BN_mod_exp_mont_consttime_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_mod_exp_mont_consttime"
@@ -705,6 +718,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      OPENSSL_realloc_nonnull_ov,
      BN_mod_exp_mont_ov,
      BN_bn2bin_padded_same_size_ov,
+     bn_neg_inv_mod_r_u64_ov,
      //BN_CTX_free_null_ov,
      //BN_CTX_free_nonnull_ov,
      BN_div_ov//,
@@ -737,6 +751,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      BN_mod_exp_mont_ov,
      BN_bn2bin_padded_same_size_ov,
      BN_mod_exp_mont_consttime_ov,
+     bn_neg_inv_mod_r_u64_ov,
      //BN_CTX_free_null_ov,
      //BN_CTX_free_nonnull_ov,
      BN_div_ov//,
