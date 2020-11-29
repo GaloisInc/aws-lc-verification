@@ -137,6 +137,17 @@ let bn_mont_n0_spec = do {
   crucible_return (crucible_term ret);
 };
 
+let CRYPTO_get_fork_generation_spec = do {
+  crucible_execute_func [];
+  ret <- crucible_fresh_var "ret" i64;
+  crucible_return (crucible_term ret);
+};
+
+CRYPTO_get_fork_generation_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "CRYPTO_get_fork_generation"
+  (CRYPTO_get_fork_generation_spec);
+
 /*
 let points_to_bn_mont_ctx_st ptr N = do {
   crucible_points_to (crucible_field ptr "N") (crucible_term N);
@@ -274,6 +285,40 @@ let RAND_bytes_spec size = do {
   // RAND_bytes always returns 1
   crucible_return (crucible_term {{ 1 : [32] }});
 };
+
+// TODO: I overrode this for two reasons:
+// 1. It has an annoying random within a range for bignums call, which I would
+// have tried to override, if it weren't for:
+// 2. It can probabilistically fail!  If it randomly picks values that aren't
+// invertible it will fail.  In theory SAW should find this counterexample.  In
+// practice, this is equivalent to factoring mont->N, so I bet SAW will just
+// hang, but I haven't tried it.  The function calls into bn_blinding_update,
+// which does a whole sequence of operations.  I'm not sure which one(s) fail
+// in the failure case, but there may be a way to override just that function
+// to say it returns 1?  In any case, that will almost certainly require
+// knowing p and q, but a whole path through the decrypt function doesn't have
+// those factors, so I'm not sure it's even worth investigating that fix.
+let BN_BLINDING_convert_spec = do {
+  n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  b_ptr <- crucible_alloc (llvm_struct "struct.bn_blinding_st");
+  e_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+
+  crucible_execute_func [n_ptr, b_ptr, e_ptr, mont_ptr, ctx_ptr];
+
+  // TODO: I almost certainly need to say something about n_ptr and b_ptr here
+  // TODO: Look at the comment on blinding.c:203.  Does this mean n is
+  // unchanged by the exit of the function?
+
+  crucible_return (crucible_term {{ 1 : [32] }});
+
+};
+
+BN_BLINDING_convert_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_BLINDING_convert"
+  (BN_BLINDING_convert_spec);
 
 RAND_bytes_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -527,16 +572,15 @@ let points_to_rsa_meth_st ptr = do {
   crucible_points_to (crucible_field ptr "private_transform") crucible_null;
 };
 
-let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr = do {
+let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr flags = do {
   crucible_points_to (crucible_field ptr "meth") meth_ptr;
   crucible_points_to (crucible_field ptr "n") n_ptr;
   crucible_points_to (crucible_field ptr "e") e_ptr;
   crucible_points_to (crucible_field ptr "d") d_ptr;
   // TODO: Do we want p and q?
   crucible_points_to (crucible_field ptr "p") crucible_null;
-  // TODO: Do we want blinding?
   crucible_points_to (crucible_field ptr "flags")
-                     (crucible_term {{ `RSA_FLAG_NO_BLINDING : [32] }});
+                     (crucible_term {{ `flags: [32] }});
 
   // TODO: Should this field be null?  mont_n is a cache, and setting it to
   // forces the encrypt function to initialize the cache, which seems right
@@ -544,6 +588,18 @@ let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr = do {
   crucible_points_to (crucible_field ptr "mont_n") crucible_null;
   // Must be null for ensure_fixed_copy
   crucible_points_to (crucible_field ptr "d_fixed") crucible_null;
+
+  // TODO: Setting this to zero skips the blinding cache invalidation step for
+  // multithreaded decrypt on some (but not all) platforms.  Do we want to
+  // check that?  SEtting this to 0 does not disable blinding, as the setup
+  // function sets it to 1 after the cache clear step if it is zero.
+  crucible_points_to (crucible_field ptr "num_blindings")
+                     (crucible_term {{ 0 : [32] }});
+  crucible_points_to (crucible_field ptr "blindings") crucible_null;
+  crucible_points_to (crucible_field ptr "blindings_inuse") crucible_null;
+  crucible_points_to (crucible_field ptr "blinding_fork_generation")
+                     (crucible_term {{ 0 : [64] }});
+
   // private_key_frozen is a 1 bit bit-field of type `unsigned`, but the
   // compiler allocates 8 bits for it
   crucible_points_to (crucible_field ptr "private_key_frozen")
@@ -679,7 +735,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   points_to_bignum_st e_ptr e_d_ptr 1;
   // TODO: I just passed in nullptr for d_ptr here.  I think that should be
   // fine, but if this proof breaks, that's one place to look
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr crucible_null;
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr crucible_null 0;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -740,9 +796,12 @@ BN_bn2bin_padded_same_size_16_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
     (w4_unint_yices []);
   };
 
-let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
+let {{ ia32cap = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff] : [4][32] }};
+let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
+  // TODO: Might want postcondition that OPENSSL_ia32cap_P is unchanged too
+  global_alloc_init "OPENSSL_ia32cap_P" {{ ia32cap }};
   
   ctx_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_ctx_st");
   pmeth_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_method_st");
@@ -767,28 +826,18 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
   // TODO: If `modulus_bytes` is not a multiple of the word
   // size (8), then `n_d` must have all bytes above `modulus_bytes` zeroed
   // out.
-  /*
-  e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
-  // e_d must be 33 bits or fewer wide
-  //crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
-  points_to_bignum_st e_ptr e_d_ptr 1;
-  */
 
-  /*
   e_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
   // e_d must be 33 bits or fewer wide
-  //crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
+  crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
   points_to_bignum_st e_ptr e_d_ptr 1;
-  */
 
   d_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   (d_d, d_d_ptr) <- ptr_to_fresh "d_d" (llvm_array d_words i64);
   points_to_bignum_st d_ptr d_d_ptr d_words;
 
-  // TODO: Passing null for e_ptr is OK if blinding is disabled
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr crucible_null d_ptr;
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr d_ptr rsa_flags;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -819,14 +868,17 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words = do {
 
   // TODO: Uncommenting these causes SAW to hang on:
   //  Symbolic simulation completed with side conditions.
+  /*
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
   crucible_points_to out_ptr (crucible_term out');
 
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+  */
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
+/*
 // Padding mode: RSA_PKCS1_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -868,7 +920,6 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     (w4_unint_yices []);
   };
 
-/*
 // Padding mode: RSA_NO_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -901,6 +952,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+*/
 
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -920,6 +972,8 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      BN_bn2bin_padded_same_size_8_ov,
      BN_mod_exp_mont_consttime_ov,
      bn_neg_inv_mod_r_u64_ov,
+     CRYPTO_get_fork_generation_ov,
+     BN_BLINDING_convert_ov,
      //BN_CTX_free_null_ov,
      //BN_CTX_free_nonnull_ov,
      BN_div_ov//,
@@ -928,10 +982,9 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      /*BN_num_bytes_n_ov*/]))
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
-  (EVP_PKEY_decrypt_spec 64 64 64 8)
+  (EVP_PKEY_decrypt_spec 64 64 64 8 0)
   do {
     //(simplify basic_ss);
     //(print_goal);
     (w4_unint_yices []);
   };
-*/
