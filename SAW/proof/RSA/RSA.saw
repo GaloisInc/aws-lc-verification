@@ -1053,3 +1053,31 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+
+crucible_llvm_verify m "EVP_PKEY_decrypt"
+  (concat
+   OPENSSL_free_nonnull_ovs
+   (concat
+    OPENSSL_malloc_ovs
+    [value_barrier_w_ov,
+     OPENSSL_free_null_ov,
+     OPENSSL_malloc_sym_ov,
+     CRYPTO_MUTEX_lock_read_ov,
+     CRYPTO_MUTEX_unlock_read_ov,
+     CRYPTO_MUTEX_lock_write_ov,
+     CRYPTO_MUTEX_unlock_write_ov,
+     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_nonnull_ov,
+     BN_bn2bin_padded_same_size_8_ov,
+     BN_mod_exp_mont_consttime_ov,
+     BN_mod_exp_mont_8_ov,
+     BN_equal_consttime_ov,
+     bn_neg_inv_mod_r_u64_ov,
+     BN_div_ov]))
+  true
+  (EVP_PKEY_decrypt_spec 64 64 64 8 RSA_FLAG_NO_BLINDING)
+  do {
+    //(simplify basic_ss);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
