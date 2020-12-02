@@ -244,6 +244,29 @@ let BN_mod_exp_mont_consttime_spec r_words = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
+let mod_exp_spec r0_words = do {
+  r0_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  I_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+
+  // *rsa is not marked const in mod_exp, but in this instance it's not
+  // modified.  The only part of mod_exp that could mutate *rsa is
+  // freeze_private_key, but rsa_default_private_transform already calls
+  // freeze_private_key before mod_exp, so the subsequent freeze_private_key
+  // call has no effect, meaning *rsa is unmodified.
+  rsa_ptr <- crucible_alloc_readonly (llvm_struct "struct.rsa_st");
+
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+  crucible_execute_func [r0_ptr, I_ptr, rsa_ptr, ctx_ptr];
+  (r0_d, r0_d_ptr) <- ptr_to_fresh "r0_d" (llvm_array r0_words i64);
+  points_to_bignum_st r0_ptr r0_d_ptr r0_words;
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+mod_exp_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "mod_exp"
+  (mod_exp_spec 8);
+
 let bn_neg_inv_mod_r_u64_spec = do {
   n <- crucible_fresh_var "n" i64;
   crucible_execute_func [crucible_term n];
@@ -1073,12 +1096,10 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
   // TODO: Forgot to uncomment these when testing blinding proof.  Uncomment
   // and retest
   //  Symbolic simulation completed with side conditions.
-  /*
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
   crucible_points_to out_ptr (crucible_term out');
 
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
-  */
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
@@ -1215,11 +1236,12 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_8_ov,
      BN_mod_exp_mont_consttime_1_ov,  // TODO: This may need a 1 byte override
-     //BN_mod_exp_mont_8_ov,  // TODO: This may need a 1 byte override
+     BN_mod_exp_mont_8_ov,  // TODO: This may need a 1 byte override
      BN_equal_consttime_ov,
      bn_neg_inv_mod_r_u64_ov,
      bn_mod_exp_base_2_consttime_ov,
      BN_mod_mul_montgomery_nonoverlap_1_ov,
+     mod_exp_ov,
      BN_mod_mul_montgomery_1_ov,  // TODO: Don't use this as is with blinding
      BN_div_ov]))
   true
