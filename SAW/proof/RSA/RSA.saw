@@ -319,7 +319,9 @@ let BN_BLINDING_convert_spec words = do {
 
 let BN_mod_mul_montgomery_spec r_words = do {
   r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+
   b_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+
   mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
   ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
 
@@ -332,10 +334,78 @@ let BN_mod_mul_montgomery_spec r_words = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
-BN_mod_mul_montgomery_ov <- crucible_llvm_unsafe_assume_spec
+let BN_mod_mul_montgomery_nonoverlap_spec r_words = do {
+  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+
+  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  b_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+
+  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+
+  crucible_execute_func [r_ptr, a_ptr, b_ptr, mont_ptr, ctx_ptr];
+
+  // Get the sizes right to avoid padding
+  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
+  points_to_bignum_st r_ptr r_d_ptr r_words;
+
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+let bn_mod_exp_base_2_consttime_spec r_words = do {
+  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  n_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+
+  crucible_execute_func [r_ptr,
+                         // Technically this should be N width * 64 * 2, but
+                         // with the values we've chosen they're equivalent
+                         crucible_term {{ `r_words * 64 * 2: [32] }},
+                         n_ptr,
+                         ctx_ptr];
+
+  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
+  points_to_bignum_st r_ptr r_d_ptr r_words;
+
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+// TODO: Overriden because it calls into bn_add_words asm function that the
+// override in the BN lib isn't working for
+bn_mod_exp_base_2_consttime_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "bn_mod_exp_base_2_consttime"
+  (bn_mod_exp_base_2_consttime_spec 1);
+
+
+let bn_add_words_spec n = do {
+  rp <- crucible_alloc (llvm_array n i64);
+  (a, ap) <- ptr_to_fresh_readonly "a" (llvm_array n i64);
+  (b, bp) <- ptr_to_fresh_readonly "b" (llvm_array n i64);
+  crucible_execute_func [rp, ap, bp, (crucible_term {{ `n : [64] }})];
+  let res = {{ ((0 : [1]) # (join (reverse a))) + ((0 : [1]) # (join (reverse b))) }};
+  crucible_points_to rp (crucible_term {{ reverse (split`{each=64} (tail res)) }});
+  crucible_return (crucible_term {{ if head res then 1 : [64] else 0 : [64] }});
+};
+
+BN_mod_mul_montgomery_8_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_mod_mul_montgomery"
   (BN_mod_mul_montgomery_spec 8);
+
+// TODO: This override may cause problems when combined with blinding, which
+// needs the 8 byte override, but there are no preconditions to differentiate
+// them.  Perhaps a symbolic version that uses the input width of the modulus
+// makes the most sense
+BN_mod_mul_montgomery_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_mul_montgomery"
+  (BN_mod_mul_montgomery_spec 1);
+
+BN_mod_mul_montgomery_nonoverlap_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_mul_montgomery"
+  (BN_mod_mul_montgomery_nonoverlap_spec 1);
 
 BN_BLINDING_convert_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -359,10 +429,15 @@ bn_neg_inv_mod_r_u64_ov <- crucible_llvm_unsafe_assume_spec
   (bn_neg_inv_mod_r_u64_spec);
 
 
-BN_mod_exp_mont_consttime_ov <- crucible_llvm_unsafe_assume_spec
+BN_mod_exp_mont_consttime_8_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_mod_exp_mont_consttime"
   (BN_mod_exp_mont_consttime_spec 8);
+
+BN_mod_exp_mont_consttime_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_exp_mont_consttime"
+  (BN_mod_exp_mont_consttime_spec 1);
 
 
 // TODO: Why doesn't the proof of this go through?  Does it have to do with the
@@ -420,6 +495,22 @@ let BN_mod_exp_mont_spec r_words = do {
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
+
+let bn_mul_words_spec num = do {
+  rp <- crucible_alloc (llvm_array num i64);
+  (a, ap) <- ptr_to_fresh_readonly "a" (llvm_array num i64);
+  w <- crucible_fresh_var "w" i64;
+  crucible_execute_func [rp, ap, (crucible_term {{ `num : [64] }}), (crucible_term w)];
+  let res = {{ split`{each=64} ((join ([0] # (reverse a))) * (0 # w)) }};
+  crucible_points_to rp (crucible_term {{ reverse (tail res) }});
+  crucible_return (crucible_term {{ head res }});
+};
+
+bn_mul_words_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "bn_mul_words"
+  (bn_mul_words_spec 8);
+
 
 BN_mod_exp_mont_8_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -586,7 +677,7 @@ OPENSSL_malloc_sym_ov <- crucible_llvm_unsafe_assume_spec
   OPENSSL_malloc_sym_spec;
 
 // TODO: Remove the 24 once you get the first thing to free here
-let free_nums = [24];
+let free_nums = [1, 24];
 OPENSSL_free_nonnull_ovs <- for free_nums
   (\x -> crucible_llvm_unsafe_assume_spec m
          "OPENSSL_free"
@@ -634,15 +725,35 @@ let points_to_rsa_meth_st ptr = do {
   crucible_points_to (crucible_field ptr "private_transform") crucible_null;
 };
 
-let points_to_rsa_st ptr meth_ptr n_ptr e_ptr d_ptr flags = do {
+let points_to_rsa_st ptr
+                     meth_ptr
+                     n_ptr
+                     e_ptr
+                     d_ptr
+                     flags
+                     p_ptr
+                     q_ptr
+                     dmp1_ptr
+                     dmq1_ptr
+                     iqmp_ptr = do {
   crucible_points_to (crucible_field ptr "meth") meth_ptr;
   crucible_points_to (crucible_field ptr "n") n_ptr;
   crucible_points_to (crucible_field ptr "e") e_ptr;
   crucible_points_to (crucible_field ptr "d") d_ptr;
-  // TODO: Do we want p and q?
-  crucible_points_to (crucible_field ptr "p") crucible_null;
   crucible_points_to (crucible_field ptr "flags")
                      (crucible_term {{ `flags: [32] }});
+
+  // Fields for the p+q case
+  crucible_points_to (crucible_field ptr "p") p_ptr;
+  crucible_points_to (crucible_field ptr "q") q_ptr;
+  crucible_points_to (crucible_field ptr "dmp1") dmp1_ptr;
+  crucible_points_to (crucible_field ptr "dmq1") dmq1_ptr;
+  crucible_points_to (crucible_field ptr "iqmp") iqmp_ptr;
+  crucible_points_to (crucible_field ptr "mont_p") crucible_null;
+  crucible_points_to (crucible_field ptr "mont_q") crucible_null;
+  crucible_points_to (crucible_field ptr "dmp1_fixed") crucible_null;
+  crucible_points_to (crucible_field ptr "dmq1_fixed") crucible_null;
+  crucible_points_to (crucible_field ptr "inv_small_mod_large_mont") crucible_null;
 
   // TODO: Should this field be null?  mont_n is a cache, and setting it to
   // forces the encrypt function to initialize the cache, which seems right
@@ -797,7 +908,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   points_to_bignum_st e_ptr e_d_ptr 1;
   // TODO: I just passed in nullptr for d_ptr here.  I think that should be
   // fine, but if this proof breaks, that's one place to look
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr crucible_null 0;
+  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr crucible_null 0 crucible_null crucible_null crucible_null crucible_null crucible_null;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -859,7 +970,7 @@ BN_bn2bin_padded_same_size_16_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
   };
 
 let {{ ia32cap = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff] : [4][32] }};
-let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags = do {
+let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_words = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
   // TODO: Might want postcondition that OPENSSL_ia32cap_P is unchanged too
@@ -899,7 +1010,37 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags = do {
   (d_d, d_d_ptr) <- ptr_to_fresh "d_d" (llvm_array d_words i64);
   points_to_bignum_st d_ptr d_d_ptr d_words;
 
-  points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr d_ptr rsa_flags;
+  // Fields for p+q case
+  // TODO: guard behind prime_words being non-zero.  Otherwise make these null
+  p_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (p_d, p_d_ptr) <- ptr_to_fresh "p_d" (llvm_array prime_words i64);
+  crucible_precond {{ ((p_d @ 0) && 1) == 1 }};  // p must be odd
+  points_to_bignum_st p_ptr p_d_ptr prime_words;
+  q_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (q_d, q_d_ptr) <- ptr_to_fresh "q_d" (llvm_array prime_words i64);
+  crucible_precond {{ ((q_d @ 0) && 1) == 1 }};  // q must be odd
+  points_to_bignum_st q_ptr q_d_ptr prime_words;
+  dmp1_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (dmp1_d, dmp1_d_ptr) <- ptr_to_fresh "dmp1_d" (llvm_array prime_words i64);
+  points_to_bignum_st dmp1_ptr dmp1_d_ptr prime_words;
+  dmq1_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (dmq1_d, dmq1_d_ptr) <- ptr_to_fresh "dmq1_d" (llvm_array prime_words i64);
+  points_to_bignum_st dmq1_ptr dmq1_d_ptr prime_words;
+  iqmp_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  (iqmp_d, iqmp_d_ptr) <- ptr_to_fresh "iqmp_d" (llvm_array prime_words i64);
+  points_to_bignum_st iqmp_ptr iqmp_d_ptr prime_words;
+
+  points_to_rsa_st rsa_ptr
+                   meth_ptr
+                   n_ptr
+                   e_ptr
+                   d_ptr
+                   rsa_flags
+                   p_ptr
+                   q_ptr
+                   dmp1_ptr
+                   dmq1_ptr
+                   iqmp_ptr;
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -929,6 +1070,8 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags = do {
     ];
 
   // TODO: Uncommenting these causes SAW to hang on:
+  // TODO: Forgot to uncomment these when testing blinding proof.  Uncomment
+  // and retest
   //  Symbolic simulation completed with side conditions.
   /*
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
@@ -1016,6 +1159,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   };
 */
 
+/*
 // TODO: Add non-blinding proof with unnecessary overrides removed
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1032,13 +1176,13 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_8_ov,
-     BN_mod_exp_mont_consttime_ov,
+     BN_mod_exp_mont_consttime_8_ov,
      BN_mod_exp_mont_8_ov,
      bn_neg_inv_mod_r_u64_ov,
      CRYPTO_get_fork_generation_ov,
      BN_BLINDING_convert_ov,
      BN_equal_consttime_ov,
-     BN_mod_mul_montgomery_ov,
+     BN_mod_mul_montgomery_8_ov,
      //BN_CTX_free_null_ov,
      //BN_CTX_free_nonnull_ov,
      BN_div_ov//,
@@ -1053,6 +1197,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+*/
 
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1069,13 +1214,16 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_8_ov,
-     BN_mod_exp_mont_consttime_ov,
-     BN_mod_exp_mont_8_ov,
+     BN_mod_exp_mont_consttime_1_ov,  // TODO: This may need a 1 byte override
+     //BN_mod_exp_mont_8_ov,  // TODO: This may need a 1 byte override
      BN_equal_consttime_ov,
      bn_neg_inv_mod_r_u64_ov,
+     bn_mod_exp_base_2_consttime_ov,
+     BN_mod_mul_montgomery_nonoverlap_1_ov,
+     BN_mod_mul_montgomery_1_ov,  // TODO: Don't use this as is with blinding
      BN_div_ov]))
   true
-  (EVP_PKEY_decrypt_spec 64 64 64 8 RSA_FLAG_NO_BLINDING)
+  (EVP_PKEY_decrypt_spec 64 64 64 8 RSA_FLAG_NO_BLINDING 1)
   do {
     //(simplify basic_ss);
     //(print_goal);
