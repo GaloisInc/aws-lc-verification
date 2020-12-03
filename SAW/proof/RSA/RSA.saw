@@ -1033,37 +1033,52 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
   (d_d, d_d_ptr) <- ptr_to_fresh "d_d" (llvm_array d_words i64);
   points_to_bignum_st d_ptr d_d_ptr d_words;
 
-  // Fields for p+q case
-  // TODO: guard behind prime_words being non-zero.  Otherwise make these null
-  p_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (p_d, p_d_ptr) <- ptr_to_fresh "p_d" (llvm_array prime_words i64);
-  crucible_precond {{ ((p_d @ 0) && 1) == 1 }};  // p must be odd
-  points_to_bignum_st p_ptr p_d_ptr prime_words;
-  q_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (q_d, q_d_ptr) <- ptr_to_fresh "q_d" (llvm_array prime_words i64);
-  crucible_precond {{ ((q_d @ 0) && 1) == 1 }};  // q must be odd
-  points_to_bignum_st q_ptr q_d_ptr prime_words;
-  dmp1_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (dmp1_d, dmp1_d_ptr) <- ptr_to_fresh "dmp1_d" (llvm_array prime_words i64);
-  points_to_bignum_st dmp1_ptr dmp1_d_ptr prime_words;
-  dmq1_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (dmq1_d, dmq1_d_ptr) <- ptr_to_fresh "dmq1_d" (llvm_array prime_words i64);
-  points_to_bignum_st dmq1_ptr dmq1_d_ptr prime_words;
-  iqmp_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (iqmp_d, iqmp_d_ptr) <- ptr_to_fresh "iqmp_d" (llvm_array prime_words i64);
-  points_to_bignum_st iqmp_ptr iqmp_d_ptr prime_words;
-
-  points_to_rsa_st rsa_ptr
-                   meth_ptr
-                   n_ptr
-                   e_ptr
-                   d_ptr
-                   rsa_flags
-                   p_ptr
-                   q_ptr
-                   dmp1_ptr
-                   dmq1_ptr
-                   iqmp_ptr;
+  if eval_bool {{ `prime_words == 0 }} then do {
+    // No CRM.  Leave p+q (and related fields) null
+    points_to_rsa_st rsa_ptr
+                     meth_ptr
+                     n_ptr
+                     e_ptr
+                     d_ptr
+                     rsa_flags
+                     crucible_null
+                     crucible_null
+                     crucible_null
+                     crucible_null
+                     crucible_null;
+  } else do {
+    // CRM case
+    // Fields for p+q case
+    // TODO: guard behind prime_words being non-zero.  Otherwise make these null
+    p_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+    (p_d, p_d_ptr) <- ptr_to_fresh "p_d" (llvm_array prime_words i64);
+    crucible_precond {{ ((p_d @ 0) && 1) == 1 }};  // p must be odd
+    points_to_bignum_st p_ptr p_d_ptr prime_words;
+    q_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+    (q_d, q_d_ptr) <- ptr_to_fresh "q_d" (llvm_array prime_words i64);
+    crucible_precond {{ ((q_d @ 0) && 1) == 1 }};  // q must be odd
+    points_to_bignum_st q_ptr q_d_ptr prime_words;
+    dmp1_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+    (dmp1_d, dmp1_d_ptr) <- ptr_to_fresh "dmp1_d" (llvm_array prime_words i64);
+    points_to_bignum_st dmp1_ptr dmp1_d_ptr prime_words;
+    dmq1_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+    (dmq1_d, dmq1_d_ptr) <- ptr_to_fresh "dmq1_d" (llvm_array prime_words i64);
+    points_to_bignum_st dmq1_ptr dmq1_d_ptr prime_words;
+    iqmp_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+    (iqmp_d, iqmp_d_ptr) <- ptr_to_fresh "iqmp_d" (llvm_array prime_words i64);
+    points_to_bignum_st iqmp_ptr iqmp_d_ptr prime_words;
+    points_to_rsa_st rsa_ptr
+                     meth_ptr
+                     n_ptr
+                     e_ptr
+                     d_ptr
+                     rsa_flags
+                     p_ptr
+                     q_ptr
+                     dmp1_ptr
+                     dmq1_ptr
+                     iqmp_ptr;
+  };
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -1220,6 +1235,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   };
 */
 
+// +CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
    OPENSSL_free_nonnull_ovs
@@ -1235,8 +1251,8 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_8_ov,
-     BN_mod_exp_mont_consttime_1_ov,  // TODO: This may need a 1 byte override
-     BN_mod_exp_mont_8_ov,  // TODO: This may need a 1 byte override
+     BN_mod_exp_mont_consttime_1_ov,
+     BN_mod_exp_mont_8_ov,
      BN_equal_consttime_ov,
      bn_neg_inv_mod_r_u64_ov,
      bn_mod_exp_base_2_consttime_ov,
