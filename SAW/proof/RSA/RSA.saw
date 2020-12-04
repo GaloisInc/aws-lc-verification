@@ -1255,7 +1255,6 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
-*/
 
 // -CRM +blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
@@ -1296,8 +1295,8 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+*/
 
-/*
 // +CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1313,24 +1312,27 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      CRYPTO_MUTEX_unlock_write_ov,
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
-     BN_bn2bin_padded_same_size_8_ov,
+     BN_bn2bin_padded_same_size_16_ov,
      BN_mod_exp_mont_consttime_1_ov,
-     BN_mod_exp_mont_8_ov,
+     BN_mod_exp_mont_16_ov,
      BN_equal_consttime_ov,
      bn_neg_inv_mod_r_u64_ov,
      bn_mod_exp_base_2_consttime_ov,
      BN_mod_mul_montgomery_nonoverlap_1_ov,
      mod_exp_ov,
+     sha256_block_data_order_spec,
+     EVP_DigestFinal_ex_ov,
      BN_mod_mul_montgomery_1_ov,  // TODO: Don't use this as is with blinding
-     BN_div_ov]))
+     BN_div_16_ov]))
   true
-  (EVP_PKEY_decrypt_spec 64 64 64 8 RSA_FLAG_NO_BLINDING 1 RSA_NO_PADDING)
+  (EVP_PKEY_decrypt_spec 128 128 128 8 RSA_FLAG_NO_BLINDING 1 RSA_PKCS1_PADDING 1)
   do {
     //(simplify basic_ss);
     //(print_goal);
     (w4_unint_yices []);
   };
 
+/*
 // +CRM +blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
