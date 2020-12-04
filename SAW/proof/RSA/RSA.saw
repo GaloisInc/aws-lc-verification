@@ -416,6 +416,11 @@ BN_mod_mul_montgomery_8_ov <- crucible_llvm_unsafe_assume_spec
   "BN_mod_mul_montgomery"
   (BN_mod_mul_montgomery_spec 8);
 
+BN_mod_mul_montgomery_16_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_mul_montgomery"
+  (BN_mod_mul_montgomery_spec 16);
+
 // TODO: This override may cause problems when combined with blinding, which
 // needs the 8 byte override, but there are no preconditions to differentiate
 // them.  Perhaps a symbolic version that uses the input width of the modulus
@@ -434,7 +439,7 @@ BN_BLINDING_convert_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_BLINDING_convert"
   // TODO: Check the output size
-  (BN_BLINDING_convert_spec 8);
+  (BN_BLINDING_convert_spec 16);
 
 RAND_bytes_ov <- crucible_llvm_unsafe_assume_spec
   m
@@ -1219,6 +1224,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   };
 */
 
+/*
 // -CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1249,8 +1255,8 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+*/
 
-/*
 // -CRM +blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1266,29 +1272,32 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      CRYPTO_MUTEX_unlock_write_ov,
      OPENSSL_realloc_null_ov,
      OPENSSL_realloc_nonnull_ov,
-     BN_bn2bin_padded_same_size_8_ov,
-     BN_mod_exp_mont_consttime_8_ov,
-     BN_mod_exp_mont_8_ov,
+     BN_bn2bin_padded_same_size_16_ov,
+     BN_mod_exp_mont_consttime_16_ov,
+     BN_mod_exp_mont_16_ov,
      bn_neg_inv_mod_r_u64_ov,
      CRYPTO_get_fork_generation_ov,
      BN_BLINDING_convert_ov,
      BN_equal_consttime_ov,
-     BN_mod_mul_montgomery_8_ov,
+     BN_mod_mul_montgomery_16_ov,
+     sha256_block_data_order_spec,
+     EVP_DigestFinal_ex_ov,
      //BN_CTX_free_null_ov,
      //BN_CTX_free_nonnull_ov,
-     BN_div_8_ov//,
+     BN_div_16_ov//,
      //bn_mont_n0_ov,
      //bn_minimal_width_n_ov,
      /*BN_num_bytes_n_ov*/]))
   //(concat [value_barrier_w_ov] OPENSSL_malloc_ovs)
   true
-  (EVP_PKEY_decrypt_spec 64 64 64 8 0 0 RSA_NO_PADDING 0)
+  (EVP_PKEY_decrypt_spec 128 128 128 8 0 0 RSA_PKCS1_OAEP_PADDING 1)
   do {
     //(simplify basic_ss);
     //(print_goal);
     (w4_unint_yices []);
   };
 
+/*
 // +CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
