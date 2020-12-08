@@ -1011,6 +1011,49 @@ BN_bn2bin_padded_same_size_16_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
     (w4_unint_yices []);
   };
 
+let RSA_padding_check_PKCS1_OAEP_mgf1_spec out_len max_out from_len param_len = do {
+  
+  (out, out_ptr) <- ptr_to_fresh "out" (llvm_array out_len i8);
+
+  out_len_ptr <- crucible_alloc i64;
+  crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+
+  from_ptr <- crucible_alloc_readonly (llvm_array from_len i8);
+
+  param_ptr <- crucible_alloc_readonly (llvm_array param_len i8);
+
+  md_ptr <- crucible_alloc_readonly (llvm_struct "struct.env_md_st");
+  points_to_env_md_st md_ptr;
+
+  crucible_execute_func [ out_ptr,
+                          out_len_ptr,
+                          crucible_term {{ `max_out : [64] }},
+                          from_ptr,
+                          crucible_term {{ `from_len : [64] }},
+                          param_ptr,
+                          crucible_term {{ `param_len : [64] }},
+                          md_ptr,
+                          crucible_null ];
+
+  ret <- crucible_fresh_var "ret" i32;
+  crucible_postcond {{ (ret == 0) || (ret == 1) }};
+
+  out' <- crucible_fresh_var "out" (llvm_array out_len i8);
+  crucible_conditional_points_to {{ ret == 1 }} out_ptr (crucible_term out');
+
+  // TODO: With padding this out_len_ptr value may not be known, just that it
+  // must be less than or equal to out_len
+  //crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
+
+  crucible_return (crucible_term {{ ret : [32] }});
+};
+
+// TODO: Verify this.
+RSA_padding_check_PKCS1_OAEP_mgf1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "RSA_padding_check_PKCS1_OAEP_mgf1"
+  (RSA_padding_check_PKCS1_OAEP_mgf1_spec 128 128 128 1);
+
 let {{ ia32cap = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff] : [4][32] }};
 let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_words pad_mode oaep_size = do {
   // TODO: Do I have to initialize this global?
@@ -1131,8 +1174,6 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
 
   ret <- crucible_fresh_var "ret" i32;
 
-  // TODO: This is a lame way of handling an unknown output size.  Is there a
-  // better way?
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
   crucible_conditional_points_to {{ ret == 1 }} out_ptr (crucible_term out');
 
@@ -1149,7 +1190,7 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
 };
 
 /*
-// Padding mode: RSA_PKCS1_PADDING
+// Padding mode: RSA_PKCS1_OAEP_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
    OPENSSL_free_nonnull_ovs
@@ -1189,7 +1230,9 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+*/
 
+/*
 // Padding mode: RSA_NO_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -1224,7 +1267,6 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   };
 */
 
-/*
 // -CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1246,6 +1288,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      BN_equal_consttime_ov,
      bn_neg_inv_mod_r_u64_ov,
      sha256_block_data_order_spec,
+     RSA_padding_check_PKCS1_OAEP_mgf1_ov,
      EVP_DigestFinal_ex_ov,
      BN_div_16_ov]))
   true
@@ -1256,6 +1299,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     (w4_unint_yices []);
   };
 
+/*
 // -CRM +blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1332,7 +1376,6 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
-  */
 
 // +CRM +blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
@@ -1373,3 +1416,4 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+  */
