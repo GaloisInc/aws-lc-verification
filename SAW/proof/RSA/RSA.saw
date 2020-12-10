@@ -1313,7 +1313,6 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
 */
 
 
-/*
 let constant_time_eq_w_spec = do {
   a <- crucible_fresh_var "a" i64;
   b <- crucible_fresh_var "b" i64;
@@ -1452,9 +1451,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
-  */
 
-/*
 // +CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -1531,4 +1528,3 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
-  */
