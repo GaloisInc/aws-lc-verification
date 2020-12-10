@@ -931,11 +931,35 @@ let RSA_padding_add_PKCS1_OAEP_mgf1_spec to_len from_len param_len = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
-// TODO: Prove this
-RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_unsafe_assume_spec
+// TODO: Probably don't need all of these overrides
+RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   m
   "RSA_padding_add_PKCS1_OAEP_mgf1"
-  (RSA_padding_add_PKCS1_OAEP_mgf1_spec 128 32 8);
+  (concat
+   OPENSSL_free_nonnull_ovs
+   (concat
+    OPENSSL_malloc_ovs
+    [value_barrier_w_ov,
+     OPENSSL_free_null_ov,
+     OPENSSL_malloc_sym_ov,
+     CRYPTO_MUTEX_lock_read_ov,
+     CRYPTO_MUTEX_unlock_read_ov,
+     CRYPTO_MUTEX_lock_write_ov,
+     CRYPTO_MUTEX_unlock_write_ov,
+     RAND_bytes_ov,
+     //CRYPTO_get_fork_generation_ov,
+     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_nonnull_ov,
+     sha256_block_data_order_spec,
+     EVP_Digest_ov,  // TODO: Do I need this override?  Could removing it speed this up?  It doesn't seem necesary for decrypt.
+     EVP_DigestFinal_ex_ov]))
+  true
+  (RSA_padding_add_PKCS1_OAEP_mgf1_spec 128 32 8)
+  do {
+    //(simplify basic_ss);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
 
 // TODO: Verify this still works after reverting change to OPENSSL_PUT_ERROR
 // (Initially changed because it requires some pthread functions and is
@@ -1040,7 +1064,6 @@ BN_bn2bin_padded_same_size_16_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
   };
 
 let RSA_padding_check_PKCS1_OAEP_mgf1_spec out_len max_out from_len param_len = do {
-  
   (out, out_ptr) <- ptr_to_fresh "out" (llvm_array out_len i8);
 
   out_len_ptr <- crucible_alloc i64;
@@ -1211,6 +1234,8 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
   */
 };
 
+/*
+// TODO: Remove digest ovs
 // Padding mode: RSA_PKCS1_OAEP_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -1252,6 +1277,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     //(print_goal);
     (w4_unint_yices []);
   };
+*/
 
 /*
 // Padding mode: RSA_NO_PADDING
