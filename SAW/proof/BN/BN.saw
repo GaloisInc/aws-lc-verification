@@ -167,6 +167,7 @@ let BN_value_one_spec = do {
   crucible_return ret_ptr;
 };
 
+/*
 let BN_div_spec numerator_width divisor_width = do {
   numerator_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   (numerator, numerator_d_ptr) <- ptr_to_fresh "numerator" (llvm_array numerator_width i64);
@@ -187,6 +188,7 @@ let BN_div_spec numerator_width divisor_width = do {
   points_to_bignum_st numerator_ptr numerator_d_ptr divisor_width numerator_width {{ 0 : [32] }};
   crucible_return (crucible_term {{ 1 : [32] }});
 };
+*/
 
 
 BN_value_one_ov <- crucible_llvm_unsafe_assume_spec
