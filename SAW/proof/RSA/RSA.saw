@@ -13,13 +13,11 @@ include "../common/internal.saw";
 include "../common/memory.saw";
 include "memory.saw";
 include "../BN/BN.saw";
+include "BN.saw";
 
 let EVP_PKEY_OP_ENCRYPT = 64;
 let EVP_PKEY_OP_DECRYPT = 128;
-let RSA_PKCS1_PADDING = 1;
-let RSA_NO_PADDING = 3;
 let RSA_PKCS1_OAEP_PADDING = 4;
-//let RSA_PKEY_CTX_SIZE = eval_int {{ (4 + 8 + 4 + 8 + 8 + 4 + 8 + 8 + 8) : [64] }};
 //let RSA_PKEY_CTX_SIZE = eval_int {{ (8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8) : [64] }};
 // RSA_PKEY_CTX is a mix of 9 ints and pointers.  However, no two ints appear
 // consecutively in the struct, so the compiler must pad them out with an extra
@@ -32,72 +30,8 @@ let MGF1MD_IDX = 4;
 let TBUF_IDX = 6;
 let OAEP_LABEL_IDX = 7;
 let OAEP_LABELLEN_IDX = 8;
-let BN_CTX_START_FRAMES = 32;
-
-// BN stack offsets
-let BN_STACK_INDEXES_IDX = 0;
-let BN_STACK_DEPTH_IDX = 1;
 
 let RSA_FLAG_NO_BLINDING = 8;
-
-let points_to_bignum_st_same ptr d_ptr dmax = do {
-  points_to_bignum_st ptr d_ptr dmax dmax {{ 0 : [32] }};
-};
-
-// TODO: Override the functions that call into these CRYPTO_MUTEX functions,
-// rather than the CRYPTO_MUTEX functions themselves
-let CRYPTO_MUTEX_lock_spec = do {
-  lock_ptr <- crucible_alloc (llvm_struct "union.crypto_mutex_st");
-  crucible_execute_func [lock_ptr];
-};
-
-let CRYPTO_get_fork_generation_spec = do {
-  crucible_execute_func [];
-  ret <- crucible_fresh_var "ret" i64;
-  crucible_return (crucible_term ret);
-};
-
-CRYPTO_get_fork_generation_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "CRYPTO_get_fork_generation"
-  (CRYPTO_get_fork_generation_spec);
-
-let BN_bn2bin_padded_same_size_spec words = do {
-  let bytes = eval_int {{ (`words * 8) : [64] }};
-  out_ptr <- crucible_alloc (llvm_array bytes i8);
-
-  in_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  (in_d, in_d_ptr) <- ptr_to_fresh_readonly "in_d" (llvm_array words i64);
-  points_to_bignum_st_same in_ptr in_d_ptr words;
-
-  crucible_execute_func [out_ptr, crucible_term {{ `bytes : [64] }}, in_ptr];
-
-  crucible_points_to out_ptr (crucible_term {{ split`{each=8} (join (reverse in_d)) }});
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-let BN_mod_exp_mont_consttime_spec r_words = do {
-  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  m_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  // TODO: Technically ctx_ptr is not a const input to BN_mod_exp_mont_spec.
-  // However, ctx_ptr is pretty much just a stack of bignums to use as temp
-  // values, and BN_mod_exp_mont_spec pops off values that it pushes to the
-  // stack, so from the algorithm's perspective, the stack is unchanged.  In
-  // reality though, it's possible for BN_mod_exp_mont_spec to push enough to
-  // realloc the stack (though I'm not sure whether this happens), and more
-  // importantly, popping the stack does not zero it, so the memory itself will
-  // be different for values beyond the tip of the stack.
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
-  crucible_execute_func [r_ptr, a_ptr, p_ptr, m_ptr, ctx_ptr, mont_ptr];
-  //r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
-
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
 
 let mod_exp_spec r0_words = do {
   r0_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
@@ -174,173 +108,6 @@ let BN_BLINDING_convert_spec words = do {
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
-
-let BN_mod_mul_montgomery_spec r_words = do {
-  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-
-  b_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-
-  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-
-  crucible_execute_func [r_ptr, r_ptr, b_ptr, mont_ptr, ctx_ptr];
-
-  // Get the sizes right to avoid padding
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
-
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-let BN_mod_mul_montgomery_nonoverlap_spec r_words = do {
-  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-
-  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  b_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-
-  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-
-  crucible_execute_func [r_ptr, a_ptr, b_ptr, mont_ptr, ctx_ptr];
-
-  // Get the sizes right to avoid padding
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
-
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-let bn_mod_exp_base_2_consttime_spec r_words = do {
-  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  n_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-
-  crucible_execute_func [r_ptr,
-                         // Technically this should be N width * 64 * 2, but
-                         // with the values we've chosen they're equivalent
-                         crucible_term {{ `r_words * 64 * 2: [32] }},
-                         n_ptr,
-                         ctx_ptr];
-
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
-
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-// TODO: Overriden because it calls into bn_add_words asm function that the
-// override in the BN lib isn't working for
-bn_mod_exp_base_2_consttime_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "bn_mod_exp_base_2_consttime"
-  (bn_mod_exp_base_2_consttime_spec 1);
-
-
-BN_mod_mul_montgomery_9_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_mod_mul_montgomery"
-  (BN_mod_mul_montgomery_spec 9);
-
-// TODO: This override may cause problems when combined with blinding, which
-// needs the 8 byte override, but there are no preconditions to differentiate
-// them.  Perhaps a symbolic version that uses the input width of the modulus
-// makes the most sense
-BN_mod_mul_montgomery_1_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_mod_mul_montgomery"
-  (BN_mod_mul_montgomery_spec 1);
-
-BN_mod_mul_montgomery_nonoverlap_1_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_mod_mul_montgomery"
-  (BN_mod_mul_montgomery_nonoverlap_spec 1);
-
-BN_BLINDING_convert_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_BLINDING_convert"
-  // TODO: Check the output size
-  (BN_BLINDING_convert_spec 9);
-
-  // TODO: Check RAND_bytes size
-RAND_bytes_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "RAND_bytes"
-  (RAND_bytes_spec 32);
-
-BN_mod_exp_mont_consttime_9_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_mod_exp_mont_consttime"
-  (BN_mod_exp_mont_consttime_spec 9);
-
-BN_mod_exp_mont_consttime_1_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_mod_exp_mont_consttime"
-  (BN_mod_exp_mont_consttime_spec 1);
-
-// Unwrapped version of wrap_BN_mod_exp_mont_spec without overlapping memory
-// regions
-let BN_mod_exp_mont_spec r_words = do {
-  r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  m_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  // TODO: Technically ctx_ptr is not a const input to BN_mod_exp_mont_spec.
-  // However, ctx_ptr is pretty much just a stack of bignums to use as temp
-  // values, and BN_mod_exp_mont_spec pops off values that it pushes to the
-  // stack, so from the algorithm's perspective, the stack is unchanged.  In
-  // reality though, it's possible for BN_mod_exp_mont_spec to push enough to
-  // realloc the stack (though I'm not sure whether this happens), and more
-  // importantly, popping the stack does not zero it, so the memory itself will
-  // be different for values beyond the tip of the stack.
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
-  //points_to_bn_mont_ctx_st mont_ptr m;
-  crucible_execute_func [r_ptr, a_ptr, p_ptr, m_ptr, ctx_ptr, mont_ptr];
-  //r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
-
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-BN_mod_exp_mont_9_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_mod_exp_mont"
-  (BN_mod_exp_mont_spec 9);
-
-// This is needed because BN_mod_exp_mont_spec isn't functionally correct.  I
-// suspect we can remove this override once BN_mod_exp_mont_spec is correct.
-let BN_equal_consttime_spec = do {
-  a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  b_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  crucible_execute_func [a_ptr, b_ptr];
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-BN_equal_consttime_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_equal_consttime"
-  (BN_equal_consttime_spec);
-
-CRYPTO_MUTEX_lock_read_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "CRYPTO_MUTEX_lock_read"
-  CRYPTO_MUTEX_lock_spec;
-
-CRYPTO_MUTEX_unlock_read_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "CRYPTO_MUTEX_unlock_read"
-  CRYPTO_MUTEX_lock_spec;
-
-CRYPTO_MUTEX_lock_write_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "CRYPTO_MUTEX_lock_write"
-  CRYPTO_MUTEX_lock_spec;
-
-CRYPTO_MUTEX_unlock_write_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "CRYPTO_MUTEX_unlock_write"
-  CRYPTO_MUTEX_lock_spec;
 
 // TODO: Just run the proof once its fixed
 EVP_Digest_ov <- crucible_llvm_unsafe_assume_spec
@@ -465,44 +232,6 @@ let points_to_rsa_st ptr
   crucible_points_to (crucible_field ptr "private_key_frozen")
                      (crucible_term {{ 0 : [8] }});
 };
-
-let BN_div_spec divisor_dmax = do {
-  //rem_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  //points_to_bignum_st_same rem_ptr crucible_null 0;
-  //numerator_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  //(numerator, numerator_d_ptr) <- ptr_to_fresh_readonly "numerator" (llvm_array numerator_dmax i64);
-  numerator_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  divisor_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-  crucible_execute_func
-    [ crucible_null // quotient_ptr
-    , numerator_ptr // rem_ptr
-    , numerator_ptr
-    , divisor_ptr
-    , ctx_ptr
-    ];
-
-  let rem_ptr = numerator_ptr;
-  rem_d_ptr <- crucible_alloc (llvm_array divisor_dmax i64);
-  points_to_bignum_st_same rem_ptr rem_d_ptr divisor_dmax;
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
-BN_div_9_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "BN_div"
-  (BN_div_spec 9);  // TODO: Where did these values come from?
-
-bn_mont_n0_1_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "bn_mont_n0"
-  (bn_mont_n0_spec 1);
-
-bn_mont_n0_9_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "bn_mont_n0"
-  (bn_mont_n0_spec 9);
-
 let points_to_rsa_pkey_ctx ptr pad_mode md_ptr oaep_label_ptr oaep_labellen = do {
   // `pad_mode` is technically a 32 bit integer, but the compiler must pad the
   // space to 64 bits as the following element in the struct is a pointer.
@@ -546,6 +275,19 @@ let RSA_padding_add_PKCS1_OAEP_mgf1_spec to_len from_len param_len = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
+BN_BLINDING_convert_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_BLINDING_convert"
+  // TODO: Check the output size
+  (BN_BLINDING_convert_spec 9);
+
+  // TODO: Check RAND_bytes size
+RAND_bytes_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "RAND_bytes"
+  (RAND_bytes_spec 32);
+
+
 // TODO: Probably don't need all of these overrides
 RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   m
@@ -562,7 +304,6 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
      RAND_bytes_ov,
-     //CRYPTO_get_fork_generation_ov,
      OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      sha256_block_data_order_spec,
@@ -658,16 +399,6 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
-
-BN_bn2bin_padded_same_size_9_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
-  []
-  true
-  (BN_bn2bin_padded_same_size_spec 9)
-  do {
-    //(simplify basic_ss);
-    //(print_goal);
-    (w4_unint_yices []);
-  };
 
 let RSA_padding_check_PKCS1_OAEP_mgf1_spec out_len max_out from_len param_len = do {
   (out, out_ptr) <- ptr_to_fresh "out" (llvm_array out_len i8);

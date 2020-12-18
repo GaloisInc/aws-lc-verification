@@ -1,0 +1,94 @@
+let BN_div_spec divisor_dmax = do {
+  //rem_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  //points_to_bignum_st_same rem_ptr crucible_null 0;
+  //numerator_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  //(numerator, numerator_d_ptr) <- ptr_to_fresh_readonly "numerator" (llvm_array numerator_dmax i64);
+  numerator_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  divisor_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
+  crucible_execute_func
+    [ crucible_null // quotient_ptr
+    , numerator_ptr // rem_ptr
+    , numerator_ptr
+    , divisor_ptr
+    , ctx_ptr
+    ];
+
+  let rem_ptr = numerator_ptr;
+  rem_d_ptr <- crucible_alloc (llvm_array divisor_dmax i64);
+  points_to_bignum_st_same rem_ptr rem_d_ptr divisor_dmax;
+  crucible_return (crucible_term {{ 1 : [32] }});
+};
+
+BN_div_9_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_div"
+  (BN_div_spec 9);  // TODO: Where did these values come from?
+
+bn_mont_n0_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "bn_mont_n0"
+  (bn_mont_n0_spec 1);
+
+bn_mont_n0_9_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "bn_mont_n0"
+  (bn_mont_n0_spec 9);
+
+// TODO: Overriden because it calls into bn_add_words asm function that the
+// override in the BN lib isn't working for
+bn_mod_exp_base_2_consttime_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "bn_mod_exp_base_2_consttime"
+  (bn_mod_exp_base_2_consttime_spec 1);
+
+
+BN_mod_mul_montgomery_9_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_mul_montgomery"
+  (BN_mod_mul_montgomery_spec 9);
+
+// TODO: This override may cause problems when combined with blinding, which
+// needs the 8 byte override, but there are no preconditions to differentiate
+// them.  Perhaps a symbolic version that uses the input width of the modulus
+// makes the most sense
+BN_mod_mul_montgomery_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_mul_montgomery"
+  (BN_mod_mul_montgomery_spec 1);
+
+BN_mod_mul_montgomery_nonoverlap_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_mul_montgomery"
+  (BN_mod_mul_montgomery_nonoverlap_spec 1);
+
+BN_mod_exp_mont_consttime_9_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_exp_mont_consttime"
+  (BN_mod_exp_mont_consttime_spec 9);
+
+BN_mod_exp_mont_consttime_1_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_exp_mont_consttime"
+  (BN_mod_exp_mont_consttime_spec 1);
+
+BN_mod_exp_mont_9_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_mod_exp_mont"
+  (BN_mod_exp_mont_spec 9);
+
+BN_equal_consttime_ov <- crucible_llvm_unsafe_assume_spec
+  m
+  "BN_equal_consttime"
+  (BN_equal_consttime_spec);
+
+BN_bn2bin_padded_same_size_9_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
+  []
+  true
+  (BN_bn2bin_padded_same_size_spec 9)
+  do {
+    //(simplify basic_ss);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
+
