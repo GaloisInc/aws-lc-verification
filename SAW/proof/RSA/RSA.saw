@@ -10,6 +10,8 @@ import "../../../cryptol-specs/Primitive/Asymmetric/Scheme/RSAES_OAEP_SHA256.cry
 //include "../common/helpers.saw";
 include "../SHA256/SHA256.saw";
 include "../common/internal.saw";
+include "../common/memory.saw";
+include "memory.saw";
 include "../BN/BN.saw";
 
 let EVP_PKEY_OP_ENCRYPT = 64;
@@ -39,62 +41,7 @@ let BN_STACK_DEPTH_IDX = 1;
 let RSA_FLAG_NO_BLINDING = 8;
 
 let points_to_bignum_st_same ptr d_ptr dmax = do {
-  crucible_points_to (crucible_field ptr "d") d_ptr;
-  crucible_points_to (crucible_field ptr "width") (crucible_term {{ `dmax : [32] }});
-  crucible_points_to (crucible_field ptr "dmax") (crucible_term {{ `dmax : [32] }});
-  crucible_points_to (crucible_field ptr "neg") (crucible_term {{ 0 : [32] }});
-  crucible_points_to (crucible_field ptr "flags") (crucible_term {{ 0 : [32] }});
-};
-
-
-// TODO: Re-enable asserts on montgomery_inv.c:120 and 160 (disabled because SAW is slow
-// to reason about it)
-
-// TODO: Put this in a common file with the SHA memory specs?
-let OPENSSL_malloc_sym_spec = do {
-  size <- crucible_fresh_var "size" i64;
-  crucible_execute_func [crucible_term size];
-  ptr <- crucible_symbolic_alloc false 16 size;
-  crucible_return ptr;
-};
-
-let OPENSSL_malloc_spec size = do {
-  crucible_execute_func [crucible_term {{ `size : [64] }}];
-  ptr <- crucible_alloc_aligned 128 (llvm_array size (llvm_int 8));
-  crucible_return ptr;
-};
-
-let OPENSSL_free_nonnull_spec size = do {
-  ptr <- crucible_alloc (llvm_array size (llvm_int 8));
-  crucible_execute_func [ptr];
-};
-
-let OPENSSL_realloc_null_spec new_size = do {
-  crucible_execute_func [crucible_null, crucible_term {{ `new_size : [64] }}];
-  ptr <- crucible_alloc_aligned 128 (llvm_array new_size (llvm_int 8));
-  crucible_return ptr;
-};
-
-let OPENSSL_realloc_nonnull_spec old_size new_size = do {
-  old_ptr <- crucible_alloc (llvm_array old_size (llvm_int 8));
-  crucible_execute_func [ old_ptr, crucible_term {{ `new_size : [64] }} ];
-  new_ptr <- crucible_alloc_aligned 128 (llvm_array new_size (llvm_int 8));
-  crucible_return new_ptr;
-};
-
-let OPENSSL_cleanse_spec len = do {
-  ptr <- crucible_alloc (llvm_array len (llvm_int 8));
-  crucible_execute_func [ptr, crucible_term {{ `len : [64] }}];
-  crucible_points_to ptr (crucible_term {{ zero : [len][8] }});
-};
-
-OPENSSL_cleanse_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "OPENSSL_cleanse"
-  (OPENSSL_cleanse_spec SHA256_CTX_SIZE);
-
-let OPENSSL_free_null_spec = do {
-  crucible_execute_func [crucible_null];
+  points_to_bignum_st ptr d_ptr dmax dmax {{ 0 : [32] }};
 };
 
 // TODO: Override the functions that call into these CRYPTO_MUTEX functions,
@@ -375,25 +322,6 @@ BN_equal_consttime_ov <- crucible_llvm_unsafe_assume_spec
   "BN_equal_consttime"
   (BN_equal_consttime_spec);
 
-OPENSSL_realloc_nonnull_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "OPENSSL_realloc"
-  // TODO: I'm not sure 32 is even the right old_size.  It surprisingly doesn't
-  // seem to matter?  But the symbolic version doesn't work at all.  I guess it
-  // works because the C only knows it's an i8*, but doesn't know how big the
-  // underlying memory is
-  (OPENSSL_realloc_nonnull_spec 32 64);
-
-OPENSSL_realloc_null_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "OPENSSL_realloc"
-  (OPENSSL_realloc_null_spec 256);
-
-OPENSSL_free_null_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "OPENSSL_free"
-  OPENSSL_free_null_spec;
-
 CRYPTO_MUTEX_lock_read_ov <- crucible_llvm_unsafe_assume_spec
   m
   "CRYPTO_MUTEX_lock_read"
@@ -454,25 +382,6 @@ EVP_DigestFinal_ex_ov <- crucible_llvm_unsafe_assume_spec
   "EVP_DigestFinal_ex"
   (EVP_DigestFinal_ex_spec 0);
 
-
-// TODO: Where are all of these allocs comming from?  Run with --sim-verbose=3
-// for stack traces on them and double check they're sensible.
-let malloc_nums = [24, 32, 40, 48, 256];
-
-OPENSSL_malloc_ovs <- for malloc_nums
-  (\x -> crucible_llvm_unsafe_assume_spec m "OPENSSL_malloc" (OPENSSL_malloc_spec x));
-
-OPENSSL_malloc_sym_ov <- crucible_llvm_unsafe_assume_spec
-  m
-  "OPENSSL_malloc"
-  OPENSSL_malloc_sym_spec;
-
-// TODO: Remove the 24 once you get the first thing to free here
-let free_nums = [1, 24];
-OPENSSL_free_nonnull_ovs <- for free_nums
-  (\x -> crucible_llvm_unsafe_assume_spec m
-         "OPENSSL_free"
-         (OPENSSL_free_nonnull_spec x));
 
 let points_to_evp_pkey_ctx_st ptr pmeth_ptr pkey_ptr operation data_ptr = do {
   crucible_points_to (crucible_field ptr "pmeth") pmeth_ptr;
@@ -644,17 +553,17 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
      RAND_bytes_ov,
      //CRYPTO_get_fork_generation_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      sha256_block_data_order_spec,
      EVP_Digest_ov,  // TODO: Do I need this override?  Could removing it speed this up?  It doesn't seem necesary for decrypt.
@@ -931,15 +840,15 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_mod_exp_mont_9_ov,
      BN_bn2bin_padded_same_size_9_ov,
@@ -982,15 +891,15 @@ RSA_padding_check_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      sha256_block_data_order_spec,
      constant_time_eq_w_ov,
@@ -1012,15 +921,15 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_9_ov,
      BN_mod_exp_mont_consttime_9_ov,
@@ -1043,15 +952,15 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_9_ov,
      BN_mod_exp_mont_consttime_9_ov,
@@ -1076,15 +985,15 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_9_ov,
      BN_mod_exp_mont_consttime_1_ov,
@@ -1111,15 +1020,15 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
    OPENSSL_free_nonnull_ovs
    (concat
-    OPENSSL_malloc_ovs
+    OPENSSL_malloc_concrete_ovs
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
-     OPENSSL_malloc_sym_ov,
+     OPENSSL_malloc_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
      CRYPTO_MUTEX_unlock_write_ov,
-     OPENSSL_realloc_null_ov,
+     OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
      BN_bn2bin_padded_same_size_9_ov,
      BN_mod_exp_mont_consttime_1_ov,

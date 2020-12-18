@@ -157,7 +157,6 @@ let pointer_to_bn_mont_ctx_st num N = do {
   return ptr;
 };
 
-//uint64_t bn_mont_n0(const BIGNUM *n)
 let bn_mont_n0_spec words = do {
   n_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
   (n_d, n_d_ptr) <- ptr_to_fresh_readonly "n_d" (llvm_array words i64);
