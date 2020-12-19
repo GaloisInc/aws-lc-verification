@@ -208,10 +208,13 @@ let RAND_bytes_spec size = do {
 // will be that if decrypt function returns 1, then the output vector is
 // correct.
 let BN_BLINDING_convert_spec words = do {
+  let num_bits = eval_size {| words * 64 |};
   n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   b_ptr <- crucible_alloc (llvm_struct "struct.bn_blinding_st");
   e_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  mont_ptr <- crucible_alloc_readonly (llvm_struct "struct.bn_mont_ctx_st");
+  (N_d, N_d_ptr) <- ptr_to_fresh_readonly "N_d" (llvm_int num_bits);
+  mont_ptr <- pointer_to_bn_mont_ctx_st words N_d_ptr N_d;
+
   ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
 
   crucible_execute_func [n_ptr, b_ptr, e_ptr, mont_ptr, ctx_ptr];
@@ -341,7 +344,8 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
   // `modulus_bytes` long.
   // TODO: Handle case where modulus_bytes is not a multiple of 8
-  crucible_precond {{ (n_d ! 0) >= (2^^56) }};
+  // TODO: Test and update comment
+  crucible_precond {{ (n_d ! 0) >= (2^^63) }};
   // `n_d` must be odd
   // TODO: I think this somehow breaks when OPENSSL_PUT_ERROR is properly
   // defined?
@@ -417,7 +421,7 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
   // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
   // `modulus_bytes` long.
   // TODO: Handle case where modulus_bytes is not a multiple of 8
-  crucible_precond {{ (n_d ! 0) >= (2^^56) }};
+  crucible_precond {{ (n_d ! 0) >= (2^^63) }};
   // `n_d` must be odd
   // TODO: I think this somehow breaks when OPENSSL_PUT_ERROR is properly
   // defined?
@@ -597,7 +601,7 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };
 
 // Padding mode: RSA_PKCS1_OAEP_PADDING
@@ -626,7 +630,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };
 
 // TODO: Probably don't need all of these overrides (ex. CRYPTO_MUTEX*)
@@ -658,10 +662,9 @@ RSA_padding_check_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };
 
-// TODO: Adjust decrypt proofs to use 72 bytes with 9 word overrides
 // -CRM -blinding
 crucible_llvm_verify m "EVP_PKEY_decrypt"
   (concat
@@ -690,7 +693,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };
 
 // -CRM +blinding
@@ -723,7 +726,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };
 
 // +CRM -blinding
@@ -758,7 +761,7 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };
 
 // +CRM +blinding
@@ -788,15 +791,13 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
      BN_mod_mul_montgomery_nonoverlap_1_ov,
      mod_exp_ov,
      RSA_padding_check_PKCS1_OAEP_mgf1_ov,
-     // Use wider 9 byte mod_mul_montgomery ov to support blinding.  This will
-     // need to be fine tuned for functional correctness, as in practice the
-     // calls used during blinding and CRM will produce different width outputs
      BN_mod_mul_montgomery_9_ov,
+     BN_mod_mul_montgomery_1_ov,
      BN_div_9_ov]))
   true
   (EVP_PKEY_decrypt_spec 72 72 72 8 0 1 RSA_PKCS1_OAEP_PADDING 1)
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices []);
+    (w4_unint_yices ["bn_mont_n0"]);
   };

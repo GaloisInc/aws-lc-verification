@@ -1,29 +1,7 @@
-let BN_div_spec divisor_dmax = do {
-  //rem_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  //points_to_bignum_st_same rem_ptr crucible_null 0;
-  //numerator_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  //(numerator, numerator_d_ptr) <- ptr_to_fresh_readonly "numerator" (llvm_array numerator_dmax i64);
-  numerator_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  divisor_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
-  crucible_execute_func
-    [ crucible_null // quotient_ptr
-    , numerator_ptr // rem_ptr
-    , numerator_ptr
-    , divisor_ptr
-    , ctx_ptr
-    ];
-
-  let rem_ptr = numerator_ptr;
-  rem_d_ptr <- crucible_alloc (llvm_array divisor_dmax i64);
-  points_to_bignum_st_same rem_ptr rem_d_ptr divisor_dmax;
-  crucible_return (crucible_term {{ 1 : [32] }});
-};
-
 BN_div_9_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_div"
-  (BN_div_spec 9);  // TODO: Where did these values come from?
+  (BN_div_spec 19 9);
 
 bn_mont_n0_1_ov <- crucible_llvm_unsafe_assume_spec
   m
