@@ -633,6 +633,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     (w4_unint_yices ["bn_mont_n0"]);
   };
 
+/*
 // TODO: Probably don't need all of these overrides (ex. CRYPTO_MUTEX*)
 // TODO: Adding EVP_Digest_ov might speed this up a tad bit more?
 RSA_padding_check_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
@@ -801,3 +802,4 @@ crucible_llvm_verify m "EVP_PKEY_decrypt"
     //(print_goal);
     (w4_unint_yices ["bn_mont_n0"]);
   };
+*/

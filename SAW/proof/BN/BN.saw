@@ -323,12 +323,25 @@ let bn_mod_exp_base_2_consttime_spec num = do {
 
 // Unwrapped version of wrap_BN_mod_exp_mont_spec without overlapping memory
 // regions
-let BN_mod_exp_mont_spec r_words = do {
-  let num_bits = eval_size {| r_words * 64 |};
+let BN_mod_exp_mont_spec num = do {
+  let num_bits = eval_size {| num * 64 |};
   r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+
   a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  /*
+  (a_d, a_d_ptr) <- ptr_to_fresh_readonly "a_d" (llvm_int num_bits);
+  points_to_bignum_st_same a_ptr a_d_ptr num;
+  */
+
+  // TODO: Don't hardcode size here, take as a param
   p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  (p_d, p_d_ptr) <- ptr_to_fresh_readonly "p_d" i64;
+  points_to_bignum_st_same p_ptr p_d_ptr 1;
+
   m_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  (m_d, m_d_ptr) <- ptr_to_fresh_readonly "m_d" (llvm_int num_bits);
+  points_to_bignum_st_same m_ptr m_d_ptr num;
+
   // TODO: Technically ctx_ptr is not a const input to BN_mod_exp_mont_spec.
   // However, ctx_ptr is pretty much just a stack of bignums to use as temp
   // values, and BN_mod_exp_mont_spec pops off values that it pushes to the
@@ -339,11 +352,11 @@ let BN_mod_exp_mont_spec r_words = do {
   // be different for values beyond the tip of the stack.
   ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
   (N_d, N_d_ptr) <- ptr_to_fresh_readonly "N_d" (llvm_int num_bits);
-  mont_ptr <- pointer_to_bn_mont_ctx_st r_words N_d_ptr N_d;
+  mont_ptr <- pointer_to_bn_mont_ctx_st num N_d_ptr N_d;
   crucible_execute_func [r_ptr, a_ptr, p_ptr, m_ptr, ctx_ptr, mont_ptr];
   //r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
+  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array num i64);
+  points_to_bignum_st_same r_ptr r_d_ptr num;
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
