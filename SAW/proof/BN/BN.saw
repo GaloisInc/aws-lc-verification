@@ -292,20 +292,31 @@ let BN_mod_mul_montgomery_nonoverlap_spec num = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
-let bn_mod_exp_base_2_consttime_spec r_words = do {
+let bn_mod_exp_base_2_consttime_spec num = do {
+  let num_bits = eval_size {| num * 64 |};
   r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+
   n_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  (n_d, n_d_ptr) <- ptr_to_fresh_readonly "n_d" (llvm_int num_bits);
+  points_to_bignum_st_same n_ptr n_d_ptr num;
+
   ctx_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_ctx");
 
+  // Technically this should be N width * 64 * 2, but
+  // with the values we've chosen they're equivalent
+  // TODO: Don't even take num as a parameter if we're going to do this, just
+  // indicate in the name that this is only for 1 word bignums
+  let p = {{ `num * 64 * 2 }};
+
   crucible_execute_func [r_ptr,
-                         // Technically this should be N width * 64 * 2, but
-                         // with the values we've chosen they're equivalent
-                         crucible_term {{ `r_words * 64 * 2: [32] }},
+                         crucible_term {{ p : [32] }},
                          n_ptr,
                          ctx_ptr];
 
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array r_words i64);
-  points_to_bignum_st_same r_ptr r_d_ptr r_words;
+  r_d_ptr <- crucible_alloc (llvm_int num_bits);
+  crucible_points_to r_d_ptr (crucible_term {{
+      integerToBV`{num_bits} ((2 ^^ p) % (integerFromBV n_d)) }});
+  points_to_bignum_st_same r_ptr r_d_ptr num;
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
