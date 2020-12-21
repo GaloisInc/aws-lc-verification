@@ -376,7 +376,9 @@ let BN_mod_exp_mont_spec num = do {
   mont_ptr <- pointer_to_bn_mont_ctx_st num N_d_ptr N_d;
   crucible_execute_func [r_ptr, a_ptr, p_ptr, m_ptr, ctx_ptr, mont_ptr];
   //r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
-  (r_d, r_d_ptr) <- ptr_to_fresh "r_d" (llvm_array num i64);
+  r_d_ptr <- crucible_alloc (llvm_int num_bits);
+  crucible_points_to r_d_ptr (crucible_term {{
+      integerToBV`{num_bits} (((integerFromBV a_d) ^^ (integerFromBV p_d)) % (integerFromBV m_d)) }} );
   points_to_bignum_st_same r_ptr r_d_ptr num;
 
   crucible_return (crucible_term {{ 1 : [32] }});
