@@ -624,6 +624,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      bn_mont_n0_9_ov,
      OPENSSL_cleanse_ov,
      BN_div_9_ov,
+     BN_bin2bn_9_ov,
      RSA_padding_add_PKCS1_OAEP_mgf1_ov]))
   true
   (EVP_PKEY_encrypt_spec 72 6 72 RSA_PKCS1_OAEP_PADDING 1)

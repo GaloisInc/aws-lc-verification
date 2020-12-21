@@ -155,7 +155,8 @@ let pointer_to_bn_mont_ctx_st num N_d_ptr N_d = do {
   crucible_points_to_untyped (crucible_field ptr "n0") (crucible_term {{ n0 : [64] }});
   */
 
-  points_to_bignum_st (crucible_field ptr "N") N_d_ptr num num {{ 0 : [32] }};
+  flag <- crucible_fresh_var "flag" i32;
+  points_to_bignum_st (crucible_field ptr "N") N_d_ptr num num flag;
 
   return ptr;
 };
@@ -163,7 +164,8 @@ let pointer_to_bn_mont_ctx_st num N_d_ptr N_d = do {
 let bn_mont_n0_spec words = do {
   n_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
   (n_d, n_d_ptr) <- ptr_to_fresh_readonly "n_d" (llvm_array words i64);
-  points_to_bignum_st n_ptr n_d_ptr words words {{ 0 : [32] }};
+  n_flag <- crucible_fresh_var "flag" i32;
+  points_to_bignum_st n_ptr n_d_ptr words words n_flag;
 
   crucible_execute_func [n_ptr];
 
@@ -202,7 +204,27 @@ let BN_div_spec numerator_width divisor_width = do {
 };
 
 let points_to_bignum_st_same ptr d_ptr dmax = do {
-  points_to_bignum_st ptr d_ptr dmax dmax {{ 0 : [32] }};
+  flag <- crucible_fresh_var "flag" i32;
+  points_to_bignum_st ptr d_ptr dmax dmax flag;
+};
+
+//OPENSSL_EXPORT BIGNUM *BN_bin2bn(const uint8_t *in, size_t len, BIGNUM *ret);
+let BN_bin2bn_spec num = do {
+  let bytes = eval_int {{ (`num * 8) : [64] }};
+  let num_bits = eval_size {| num * 64 |};
+
+  (in_d, in_ptr) <- ptr_to_fresh_readonly "in" (llvm_array bytes i8);
+
+  out_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
+  points_to_bignum_st out_ptr crucible_null 0 0 BN_FLG_MALLOCED;
+
+  crucible_execute_func [in_ptr, crucible_term {{ `bytes : [64] }}, out_ptr];
+
+  out_d_ptr <- crucible_alloc (llvm_int num_bits);
+  crucible_points_to out_d_ptr (crucible_term {{ join in_d }});
+  points_to_bignum_st out_ptr out_d_ptr num num BN_FLG_MALLOCED;
+  crucible_return out_ptr;
+
 };
 
 let BN_bn2bin_padded_same_size_spec words = do {
@@ -328,10 +350,9 @@ let BN_mod_exp_mont_spec num = do {
   r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
 
   a_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
-  /*
   (a_d, a_d_ptr) <- ptr_to_fresh_readonly "a_d" (llvm_int num_bits);
-  points_to_bignum_st_same a_ptr a_d_ptr num;
-  */
+  a_flag <- crucible_fresh_var "a_flag" i32;
+  points_to_bignum_st a_ptr a_d_ptr num num a_flag;
 
   // TODO: Don't hardcode size here, take as a param
   p_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");

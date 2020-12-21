@@ -70,3 +70,12 @@ BN_bn2bin_padded_same_size_9_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
     (w4_unint_yices []);
   };
 
+BN_bin2bn_9_ov <- crucible_llvm_verify m "BN_bin2bn"
+  [ OPENSSL_malloc_ov ]
+  true
+  (BN_bin2bn_spec 9)
+  do {
+    //(simplify basic_ss);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
