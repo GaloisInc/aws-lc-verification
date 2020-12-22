@@ -180,12 +180,15 @@ let constant_time_eq_w_spec = do {
   }});
 };
 
+oaep_random_out <- crucible_declare_ghost_state "oaep_random_out";
 let RAND_bytes_spec size = do {
+  k <- crucible_fresh_cryptol_var "k" {| [size][8] |};
+  crucible_ghost_value oaep_random_out k;
+
   out_ptr <- crucible_alloc (llvm_array size i8);
   crucible_execute_func [out_ptr, crucible_term {{ `size : [64] }}];
 
-  out <- crucible_fresh_var "out" (llvm_array size i8);
-  crucible_points_to out_ptr (crucible_term out);
+  crucible_points_to out_ptr (crucible_term k);
 
   // RAND_bytes always returns 1
   crucible_return (crucible_term {{ 1 : [32] }});
@@ -263,6 +266,9 @@ let EVP_DigestFinal_ex_spec num = do {
 };
 
 let RSA_padding_add_PKCS1_OAEP_mgf1_spec to_len from_len param_len = do {
+  k <- crucible_fresh_cryptol_var "k" {| [SHA256_DIGEST_LENGTH][8] |};
+  crucible_ghost_value oaep_random_out k;
+
   to_ptr <- crucible_alloc (llvm_array to_len i8);
 
   (from, from_ptr) <- ptr_to_fresh_readonly "from" (llvm_array from_len i8);
@@ -281,10 +287,8 @@ let RSA_padding_add_PKCS1_OAEP_mgf1_spec to_len from_len param_len = do {
                           md_ptr,
                           crucible_null ];
 
-  to' <- crucible_fresh_var "to" (llvm_array to_len i8);
-  // See the TODO in the encrypt proof to see why this precond is here.
-  crucible_postcond {{ (to' @ 0) == 0 }};
-  crucible_points_to to_ptr (crucible_term to');
+  crucible_points_to to_ptr (crucible_term {{
+      split`{each=8} (integerToBV`{to_len * 8} (EME_OAEP_encode_integer`{param_len, from_len} k (integerFromBV (join from), integerFromBV (join param)))) }});
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
@@ -329,6 +333,8 @@ let RSA_padding_check_PKCS1_OAEP_mgf1_spec out_len max_out from_len param_len = 
 let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   // TODO: Do I have to initialize this global?
   //crucible_alloc_global "g_thread_local_init_once";
+  k <- crucible_fresh_cryptol_var "k" {| [SHA256_DIGEST_LENGTH][8] |};
+  crucible_ghost_value oaep_random_out k;
   
   ctx_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_ctx_st");
   pmeth_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_method_st");
@@ -586,6 +592,7 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
     [value_barrier_w_ov,
      OPENSSL_free_null_ov,
      OPENSSL_malloc_ov,
+     OPENSSL_cleanse_ov,
      CRYPTO_MUTEX_lock_read_ov,
      CRYPTO_MUTEX_unlock_read_ov,
      CRYPTO_MUTEX_lock_write_ov,
@@ -593,17 +600,18 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
      RAND_bytes_ov,
      OPENSSL_realloc_null_concrete_ov,
      OPENSSL_realloc_nonnull_ov,
-     sha256_block_data_order_spec,
-     EVP_Digest_ov,  // TODO: Do I need this override?  Could removing it speed this up?  It doesn't seem necesary for decrypt.
-     EVP_DigestFinal_ex_ov]))
+     sha256_block_data_order_spec]))
   true
   (RSA_padding_add_PKCS1_OAEP_mgf1_spec 72 6 1)
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (w4_unint_yices ["bn_mont_n0"]);
+    (goal_eval_unint ["processBlock_Common"]);
+    (print_goal);
+    (w4_unint_yices ["processBlock_Common"]);
   };
 
+/*
 // Padding mode: RSA_PKCS1_OAEP_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -633,6 +641,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     //(print_goal);
     (w4_unint_yices ["bn_mont_n0"]);
   };
+  */
 
 /*
 // TODO: Probably don't need all of these overrides (ex. CRYPTO_MUTEX*)
