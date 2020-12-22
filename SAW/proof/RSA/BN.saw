@@ -60,6 +60,26 @@ BN_equal_consttime_ov <- crucible_llvm_unsafe_assume_spec
   "BN_equal_consttime"
   (BN_equal_consttime_spec);
 
+BN_ucmp_lt_9_ov <- crucible_llvm_verify m "BN_ucmp"
+  [value_barrier_w_ov]
+  true
+  (BN_ucmp_lt_spec 9)
+  do {
+    //(goal_eval_unint []);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
+
+BN_ucmp_gt_9_1_ov <- crucible_llvm_verify m "BN_ucmp"
+  [value_barrier_w_ov]
+  true
+  (BN_ucmp_gt_spec 9 1)
+  do {
+    //(goal_eval_unint []);
+    //(print_goal);
+    (w4_unint_yices []);
+  };
+
 BN_bn2bin_padded_same_size_9_ov <- crucible_llvm_verify m "BN_bn2bin_padded"
   []
   true
