@@ -99,3 +99,30 @@ BN_bin2bn_9_ov <- crucible_llvm_verify m "BN_bin2bn"
     //(print_goal);
     (w4_unint_yices []);
   };
+
+let BN_num_bits_spec num_bits = do {
+  let num = eval_size {| ((num_bits - 1) / 64) + 1 |};
+  let num_bits_max = eval_size {| num * 64 |};
+
+  bn_ptr <- crucible_alloc_readonly (llvm_struct "struct.bignum_st");
+  (bn, bn_d_ptr) <- ptr_to_fresh_readonly "bn" (llvm_int num_bits_max);
+  points_to_bignum_st_same bn_ptr bn_d_ptr num;
+
+  crucible_precond {{ is_num_bits_bn`{num_bits} bn }};
+
+  crucible_execute_func [bn_ptr];
+
+  crucible_return (crucible_term {{ `num_bits : [32] }});
+};
+
+BN_num_bits_32_ov <- llvm_verify m "BN_num_bits"
+  []
+  true
+  (BN_num_bits_spec 32)
+  (w4_unint_yices []);
+
+BN_num_bits_576_ov <- llvm_verify m "BN_num_bits"
+  []
+  true
+  (BN_num_bits_spec 576)
+  (w4_unint_yices []);

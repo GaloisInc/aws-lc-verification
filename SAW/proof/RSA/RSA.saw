@@ -364,6 +364,8 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   (e_d, e_d_ptr) <- ptr_to_fresh "e_d" i64;
   // e_d must be 33 bits or fewer wide
   crucible_precond {{ e_d <= (2 ^^ 33 - 1) }};
+  // force num_bits of e_d to be 33
+  //crucible_precond {{ e_d @ 31 }};
   points_to_bignum_st_same e_ptr e_d_ptr 1;
   // TODO: I just passed in nullptr for d_ptr here.  I think that should be
   // fine, but if this proof breaks, that's one place to look
@@ -398,8 +400,19 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
     , crucible_term {{ `in_len : [64] }}
     ];
 
+    /*
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
   crucible_points_to out_ptr (crucible_term out');
+  */
+  crucible_points_to out_ptr (crucible_term {{
+      split`{out_len, 8} (integerToBV`{out_len * 8}
+          (RSAES_OAEP_ENCRYPT_INTEGER`{oaep_size, in_len}
+             k
+             (integerFromBV (join input))
+             (integerFromBV (join oaep_label))
+             // TODO: Might need to alloc n (and the rest) as integers to avoid endianness problems
+             (integerFromBV (join n_d))
+             (integerFromBV e_d))) }});
 
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
@@ -606,12 +619,11 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (goal_eval_unint ["processBlock_Common"]);
-    (print_goal);
+    //(goal_eval_unint ["processBlock_Common"]);
+    //(print_goal);
     (w4_unint_yices ["processBlock_Common"]);
   };
 
-/*
 // Padding mode: RSA_PKCS1_OAEP_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -633,15 +645,22 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
      OPENSSL_cleanse_ov,
      BN_div_9_ov,
      BN_bin2bn_9_ov,
+     BN_ucmp_lt_9_ov,
+     BN_ucmp_gt_9_1_ov,
+     /*
+     BN_num_bits_32_ov,
+     BN_num_bits_576_ov,
+     */
      RSA_padding_add_PKCS1_OAEP_mgf1_ov]))
   true
   (EVP_PKEY_encrypt_spec 72 6 72 RSA_PKCS1_OAEP_PADDING 1)
   do {
     //(simplify basic_ss);
     //(print_goal);
+    (goal_eval_unint ["bn_mont_n0", "integerToBV", "integerFromBV"]);
+    (print_goal);
     (w4_unint_yices ["bn_mont_n0"]);
   };
-  */
 
 /*
 // TODO: Probably don't need all of these overrides (ex. CRYPTO_MUTEX*)
