@@ -6,6 +6,7 @@ enable_experimental;
 m <- llvm_load_module "../../build/llvm/crypto/crypto_test.bc";
 
 import "../../../cryptol-specs/Primitive/Asymmetric/Scheme/RSAES_OAEP_SHA256.cry";
+import "../../../cryptol-specs/Primitive/Asymmetric/Cipher/RSA.cry";
 
 //include "../common/helpers.saw";
 include "../SHA256/SHA256.saw";
@@ -647,9 +648,9 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    (goal_eval_unint ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV"]);
-    (print_goal);
-    (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV"]);
+    //(goal_eval_unint ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
+    //(print_goal);
+    (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
   };
 
 /*
