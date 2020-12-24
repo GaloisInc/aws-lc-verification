@@ -257,8 +257,12 @@ let RSA_padding_add_PKCS1_OAEP_mgf1_spec to_len from_len param_len = do {
                           md_ptr,
                           crucible_null ];
 
-  crucible_points_to to_ptr (crucible_term {{
-      split`{each=8} (integerToBV`{to_len * 8} (EME_OAEP_encode_integer`{param_len, from_len} k (integerFromBV (join from), integerFromBV (join param)))) }});
+  let to = {{ split`{each=8} (integerToBV`{to_len * 8} (EME_OAEP_encode_integer`{param_len, from_len} k (integerFromBV (join from), integerFromBV (join param)))) }};
+
+  // to[0] is always 0
+  crucible_postcond {{ (to @ 0) == 0 }};
+
+  crucible_points_to to_ptr (crucible_term to);
 
   crucible_return (crucible_term {{ 1 : [32] }});
 };
@@ -637,7 +641,7 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     //(print_goal);
     //(goal_eval_unint ["bn_mont_n0", "integerToBV", "integerFromBV"]);
     //(print_goal);
-    (w4_unint_yices ["bn_mont_n0"]);
+    (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer"]);
   };
 
 /*
