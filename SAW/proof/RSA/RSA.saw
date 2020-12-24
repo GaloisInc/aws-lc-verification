@@ -107,7 +107,7 @@ let points_to_rsa_st ptr
   // TODO: Should this field be null?  mont_n is a cache, and setting it to
   // forces the encrypt function to initialize the cache, which seems right
   // here.  Is there a reason it wouldn't be null?
-  crucible_points_to (crucible_field ptr "mont_n") crucible_null;
+  //crucible_points_to (crucible_field ptr "mont_n") crucible_null;
   // Must be null for ensure_fixed_copy
   crucible_points_to (crucible_field ptr "d_fixed") crucible_null;
 
@@ -364,6 +364,14 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   // TODO: I just passed in nullptr for d_ptr here.  I think that should be
   // fine, but if this proof breaks, that's one place to look
   points_to_rsa_st rsa_ptr meth_ptr n_ptr e_ptr crucible_null 0 crucible_null crucible_null crucible_null crucible_null crucible_null;
+
+
+  // TODO: Modify points_to_rsa_st to take this pointer as a parameter (if we
+  // decide to go the route of defining it ourselves rather than leaving it
+  // null).  Also, don't hardcode "9" here
+  n_mont_ctx_ptr <- pointer_to_bn_mont_ctx_st 9 n_d_ptr n_d;
+  crucible_points_to (crucible_field rsa_ptr "mont_n") n_mont_ctx_ptr;
+
   points_to_evp_pkey_st pkey_ptr rsa_ptr;
   // TODO: data_ptr actully points to an RSA_PKEY_CTX struct.  Be *very
   // careful* with getting the contents of this right.
@@ -639,9 +647,9 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    //(goal_eval_unint ["bn_mont_n0", "integerToBV", "integerFromBV"]);
-    //(print_goal);
-    (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer"]);
+    (goal_eval_unint ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV"]);
+    (print_goal);
+    (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV"]);
   };
 
 /*
