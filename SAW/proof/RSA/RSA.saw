@@ -394,9 +394,10 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
     , crucible_term {{ `in_len : [64] }}
     ];
 
+    /*
   out' <- crucible_fresh_var "out" (llvm_array out_len i8);
   crucible_points_to out_ptr (crucible_term out');
-    /*
+  */
   crucible_points_to out_ptr (crucible_term {{
       split`{out_len, 8} (integerToBV`{out_len * 8}
           (RSAES_OAEP_ENCRYPT_INTEGER`{oaep_size, in_len}
@@ -406,7 +407,6 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
              // TODO: Might need to alloc n (and the rest) as integers to avoid endianness problems
              (integerFromBV (join n_d))
              (integerFromBV e_d))) }});
-             */
 
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
