@@ -340,17 +340,18 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   points_to_rsa_meth_st meth_ptr;
   n_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   let modulus_words = eval_int {{ ((`modulus_bytes + 7) / 8) : [64]}};
-  (n_d, n_d_ptr) <- ptr_to_fresh "n_d" (llvm_array modulus_words i64);
+  let modulus_bits = eval_size {| modulus_words * 64 |};
+  (n_d, n_d_ptr) <- ptr_to_fresh "n_d" (llvm_int modulus_bits);
   points_to_bignum_st_same n_ptr n_d_ptr modulus_words;
   // `n_d` must have a nonzero value in byte (modulus_bytes - 1) to be considered
   // `modulus_bytes` long.
   // TODO: Handle case where modulus_bytes is not a multiple of 8
   // TODO: Test and update comment
-  crucible_precond {{ (n_d ! 0) >= (2^^63) }};
+  crucible_precond {{ (n_d ! 0) == 1 }};
   // `n_d` must be odd
   // TODO: I think this somehow breaks when OPENSSL_PUT_ERROR is properly
   // defined?
-  crucible_precond {{ ((n_d @ 0) && 1) == 1 }};
+  crucible_precond {{ (n_d @ 0) == 1 }};
   //crucible_precond {{ ((split`{each=8} (join n_d)) @ (`modulus_bytes - 1)) > 0 }};
   // TODO: If `modulus_bytes` is not a multiple of the word
   // size (8), then `n_d` must have all bytes above `modulus_bytes` zeroed
@@ -389,11 +390,6 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
 
   (input, in_ptr) <- ptr_to_fresh_readonly "input" (llvm_array in_len i8);
-  // TODO: This effectively makes input < n_d (whcih is required), but it does
-  // so in a hacky way.  This precondition should directly reference n_d.
-  // The interface is dumb so `input` is a big endian number but `n_d` is
-  // little endian...
-  //crucible_precond {{ (input @ 0) == 0 }};
 
   crucible_execute_func
     [ ctx_ptr
@@ -413,8 +409,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
              k
              (integerFromBV (join input))
              (integerFromBV (join oaep_label))
-             // TODO: Might need to alloc n (and the rest) as integers to avoid endianness problems
-             (integerFromBV (join n_d))
+             (integerFromBV n_d)
              (integerFromBV e_d))) }});
 
   crucible_points_to out_len_ptr (crucible_term {{ `out_len : [64] }});
@@ -615,6 +610,12 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
     (w4_unint_yices ["processBlock_Common"]);
   };
 
+integerFromToBV <- prove_print
+  (do {
+    assume_unsat;
+  })
+  (rewrite (cryptol_ss ()) {{ \x -> integerFromBV (integerToBV`{576} x) == x }});
+
 // Padding mode: RSA_PKCS1_OAEP_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
   (concat
@@ -648,8 +649,9 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
   do {
     //(simplify basic_ss);
     //(print_goal);
-    //(goal_eval_unint ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
+    (goal_eval_unint ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
     //(print_goal);
+    simplify (addsimp integerFromToBV empty_ss);
     (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
   };
 
