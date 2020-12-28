@@ -208,7 +208,6 @@ let points_to_bignum_st_same ptr d_ptr dmax = do {
   points_to_bignum_st ptr d_ptr dmax dmax flag;
 };
 
-//OPENSSL_EXPORT BIGNUM *BN_bin2bn(const uint8_t *in, size_t len, BIGNUM *ret);
 let BN_bin2bn_spec num = do {
   let bytes = eval_int {{ (`num * 8) : [64] }};
   let num_bits = eval_size {| num * 64 |};
@@ -297,7 +296,6 @@ let BN_mod_mul_montgomery_nonoverlap_spec num = do {
   (b_d, b_d_ptr) <- ptr_to_fresh_readonly "b_d" (llvm_int num_bits);
   points_to_bignum_st_same b_ptr b_d_ptr num;
 
-  //N <- crucible_fresh_var "N" (llvm_int num_bits);
   (N_d, N_d_ptr) <- ptr_to_fresh_readonly "N_d" (llvm_int num_bits);
   mont_ptr <- pointer_to_bn_mont_ctx_st num N_d_ptr N_d;
 
@@ -375,7 +373,6 @@ let BN_mod_exp_mont_spec num = do {
   (N_d, N_d_ptr) <- ptr_to_fresh_readonly "N_d" (llvm_int num_bits);
   mont_ptr <- pointer_to_bn_mont_ctx_st num N_d_ptr N_d;
   crucible_execute_func [r_ptr, a_ptr, p_ptr, m_ptr, ctx_ptr, mont_ptr];
-  //r_ptr <- crucible_alloc (llvm_struct "struct.bignum_st");
   r_d_ptr <- crucible_alloc (llvm_int num_bits);
   crucible_points_to r_d_ptr (crucible_term {{
       integerToBV`{num_bits} (modexp (integerFromBV a_d) (integerFromBV p_d) (integerFromBV m_d)) }} );

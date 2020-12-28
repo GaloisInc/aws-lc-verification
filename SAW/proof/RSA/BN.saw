@@ -26,10 +26,6 @@ BN_mod_mul_montgomery_9_ov <- crucible_llvm_unsafe_assume_spec
   "BN_mod_mul_montgomery"
   (BN_mod_mul_montgomery_spec 9);
 
-// TODO: This override may cause problems when combined with blinding, which
-// needs the 8 byte override, but there are no preconditions to differentiate
-// them.  Perhaps a symbolic version that uses the input width of the modulus
-// makes the most sense
 BN_mod_mul_montgomery_1_ov <- crucible_llvm_unsafe_assume_spec
   m
   "BN_mod_mul_montgomery"
