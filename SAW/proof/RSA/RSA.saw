@@ -8,6 +8,12 @@ m <- llvm_load_module "../../build/llvm/crypto/crypto_test.bc";
 import "../../../cryptol-specs/Primitive/Asymmetric/Scheme/RSAES_OAEP_SHA256.cry";
 import "../../../cryptol-specs/Primitive/Asymmetric/Cipher/RSA.cry";
 
+integerFromToBV <- prove_print
+  (do {
+    w4_unint_z3 [];
+  })
+  (rewrite (cryptol_ss ()) {{ \x1 x2 -> integerFromBV (integerToBV`{576} (EME_OAEP_encode_integer`{1, 6} x1 x2)) == (EME_OAEP_encode_integer`{1, 6} x1 x2) }});
+
 //include "../common/helpers.saw";
 include "../SHA256/SHA256.saw";
 include "../common/internal.saw";
@@ -610,11 +616,6 @@ RSA_padding_add_PKCS1_OAEP_mgf1_ov <- crucible_llvm_verify
     (w4_unint_yices ["processBlock_Common"]);
   };
 
-integerFromToBV <- prove_print
-  (do {
-    assume_unsat;
-  })
-  (rewrite (cryptol_ss ()) {{ \x -> integerFromBV (integerToBV`{576} x) == x }});
 
 // Padding mode: RSA_PKCS1_OAEP_PADDING
 crucible_llvm_verify m "EVP_PKEY_encrypt"
@@ -650,8 +651,8 @@ crucible_llvm_verify m "EVP_PKEY_encrypt"
     //(simplify basic_ss);
     //(print_goal);
     (goal_eval_unint ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
-    //(print_goal);
     simplify (addsimp integerFromToBV empty_ss);
+    //(print_goal);
     (w4_unint_yices ["bn_mont_n0", "EME_OAEP_encode_integer", "integerToBV", "integerFromBV", "modexp"]);
   };
 
