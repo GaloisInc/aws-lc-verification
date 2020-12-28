@@ -395,13 +395,7 @@ let EVP_PKEY_encrypt_spec out_len in_len modulus_bytes pad_mode oaep_size = do {
   crucible_return (crucible_term {{ 1 : [32] }});
 };
 
-let {{ ia32cap = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff] : [4][32] }};
 let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_words pad_mode oaep_size = do {
-  // TODO: Do I have to initialize this global?
-  //crucible_alloc_global "g_thread_local_init_once";
-  // TODO: Might want postcondition that OPENSSL_ia32cap_P is unchanged too
-  global_alloc_init "OPENSSL_ia32cap_P" {{ ia32cap }};
-
   ctx_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_ctx_st");
   pmeth_ptr <- crucible_alloc (llvm_struct "struct.evp_pkey_method_st");
   points_to_evp_pkey_method_st pmeth_ptr;
@@ -496,9 +490,8 @@ let EVP_PKEY_decrypt_spec out_len in_len modulus_bytes d_words rsa_flags prime_w
 
   (input, in_ptr) <- ptr_to_fresh_readonly "input" (llvm_array in_len i8);
 
-  // TODO: This precond might not be necessary given that the padding ensure
-  // it's true of the padded input (and it probably doesn't matter for the
-  // unpaded input).
+  // TODO: This effectively makes `input < n_d` (which is required), but it
+  // does so in a hacky way.  This precondition should directly reference `n_d`
   crucible_precond {{ (input @ 0) == 0 }};
 
   crucible_execute_func
