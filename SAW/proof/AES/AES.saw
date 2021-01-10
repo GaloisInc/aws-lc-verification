@@ -105,102 +105,77 @@ let aes_hw_decrypt_in_place_spec = do {
   crucible_points_to inout_ptr (crucible_term {{ aes_hw_decrypt in_ (key_low # key_high) }});
 };
 
-let {{ ret = zero : [whole_blocks_after_bulk * AES_BLOCK_SIZE][8] }};
-
 let aes_hw_ctr32_encrypt_blocks_spec len = do {
   let len' = eval_size {| len * AES_BLOCK_SIZE |};
   global_alloc_init "OPENSSL_ia32cap_P" {{ ia32cap }};
 
-  // (in_, in_ptr) <- ptr_to_fresh_readonly "in" (llvm_array len' (llvm_int 8));
-  let in_ = {{ zero : [len'][8] }};
-  in_ptr <- crucible_alloc_readonly (llvm_array len' (llvm_int 8));
-  crucible_points_to in_ptr (crucible_term in_);
+  (in_, in_ptr) <- ptr_to_fresh_readonly "in" (llvm_array len' (llvm_int 8));
 
   out_ptr <- crucible_alloc (llvm_array len' (llvm_int 8));
 
   key_ptr <- crucible_alloc_readonly (llvm_struct "struct.aes_key_st");
-  // key <- fresh_aes_key_st;
-  let key = {{ zero : [aes_key_len][8] }};
+  key <- fresh_aes_key_st;
   points_to_aes_key_st key_ptr key;
 
-  // (ivec, ivec_ptr) <- ptr_to_fresh_readonly "ivec" (llvm_array AES_BLOCK_SIZE (llvm_int 8));
-  let ivec = {{ zero : [AES_BLOCK_SIZE][8] }};
-  ivec_ptr <- crucible_alloc_readonly (llvm_array AES_BLOCK_SIZE (llvm_int 8));
-  crucible_points_to ivec_ptr (crucible_term ivec);
+  (ivec, ivec_ptr) <- ptr_to_fresh_readonly "ivec" (llvm_array AES_BLOCK_SIZE (llvm_int 8));
 
   crucible_execute_func [in_ptr, out_ptr, (crucible_term {{ `len : [64] }}), key_ptr, ivec_ptr];
 
   global_points_to "OPENSSL_ia32cap_P" {{ ia32cap }};
 
-  // crucible_points_to out_ptr (crucible_term {{ aes_hw_ctr32_encrypt_blocks in_ key ivec }});
-  crucible_points_to out_ptr (crucible_term {{ ret : [len'][8] }});
+  crucible_points_to out_ptr (crucible_term {{ aes_hw_ctr32_encrypt_blocks in_ key ivec }});
 };
-
-let view_concrete len = do {
-  let len' = eval_size {| len * AES_BLOCK_SIZE |};
-  let in_ = {{ zero : [len'][8] }};
-  let key = {{ zero : [aes_key_len][8] }};
-  let ivec = {{ zero : [AES_BLOCK_SIZE][8] }};
-  print {{ aes_hw_ctr32_encrypt_blocks in_ key ivec }};
-};
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
 // Proof commands
-// aes_hw_set_encrypt_key_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_set_encrypt_key"
-//   []
-//   true
-//   aes_hw_set_encrypt_key_spec
-//   (do {
-//     simplify (cryptol_ss ());
-//     simplify (addsimps slice_384_thms basic_ss);
-//     w4_unint_yices ["SubByte'"];
-//   });
-// 
-// aes_hw_encrypt_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_encrypt"
-//   []
-//   true
-//   aes_hw_encrypt_spec
-//   (do {
-//     simplify (cryptol_ss ());
-//     simplify (addsimps slice_384_thms basic_ss);
-//     w4_unint_yices ["AESRound", "AESFinalRound"];
-//   });
-// aes_hw_encrypt_in_place_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_encrypt"
-//   []
-//   true
-//   aes_hw_encrypt_in_place_spec
-//   (do {
-//     simplify (cryptol_ss ());
-//     simplify (addsimps slice_384_thms basic_ss);
-//     w4_unint_yices ["AESRound", "AESFinalRound"];
-//   });
-// 
-// aes_hw_decrypt_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_decrypt"
-//   []
-//   true
-//   aes_hw_decrypt_spec
-//   (do {
-//     simplify (cryptol_ss ());
-//     simplify (addsimps slice_384_thms basic_ss);
-//     w4_unint_yices ["AESInvRound", "AESFinalInvRound"];
-//   });
-// aes_hw_decrypt_in_place_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_decrypt"
-//   []
-//   true
-//   aes_hw_decrypt_in_place_spec
-//   (do {
-//     simplify (cryptol_ss ());
-//     simplify (addsimps slice_384_thms basic_ss);
-//     w4_unint_yices ["AESInvRound", "AESFinalInvRound"];
-//   });
+aes_hw_set_encrypt_key_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_set_encrypt_key"
+  []
+  true
+  aes_hw_set_encrypt_key_spec
+  (do {
+    simplify (cryptol_ss ());
+    simplify (addsimps slice_384_thms basic_ss);
+    w4_unint_yices ["SubByte'"];
+  });
 
-print whole_blocks_after_bulk;
-view_concrete whole_blocks_after_bulk;
+aes_hw_encrypt_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_encrypt"
+  []
+  true
+  aes_hw_encrypt_spec
+  (do {
+    simplify (cryptol_ss ());
+    simplify (addsimps slice_384_thms basic_ss);
+    w4_unint_yices ["AESRound", "AESFinalRound"];
+  });
+aes_hw_encrypt_in_place_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_encrypt"
+  []
+  true
+  aes_hw_encrypt_in_place_spec
+  (do {
+    simplify (cryptol_ss ());
+    simplify (addsimps slice_384_thms basic_ss);
+    w4_unint_yices ["AESRound", "AESFinalRound"];
+  });
 
-// first half of actual output matches, second half does not match
-
+aes_hw_decrypt_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_decrypt"
+  []
+  true
+  aes_hw_decrypt_spec
+  (do {
+    simplify (cryptol_ss ());
+    simplify (addsimps slice_384_thms basic_ss);
+    w4_unint_yices ["AESInvRound", "AESFinalInvRound"];
+  });
+aes_hw_decrypt_in_place_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_decrypt"
+  []
+  true
+  aes_hw_decrypt_in_place_spec
+  (do {
+    simplify (cryptol_ss ());
+    simplify (addsimps slice_384_thms basic_ss);
+    w4_unint_yices ["AESInvRound", "AESFinalInvRound"];
+  });
 
 add_x86_preserved_reg "r11";
 aes_hw_ctr32_encrypt_blocks_ov <- llvm_verify_x86 m "../../build/x86/crypto/crypto_test" "aes_hw_ctr32_encrypt_blocks"
@@ -208,14 +183,9 @@ aes_hw_ctr32_encrypt_blocks_ov <- llvm_verify_x86 m "../../build/x86/crypto/cryp
   true
   (aes_hw_ctr32_encrypt_blocks_spec whole_blocks_after_bulk)
   (do {
-    // print_goal;
-    // simplify (cryptol_ss ());
-    // simplify (addsimps slice_384_thms basic_ss);
-    goal_eval_unint ["ret"];
     print_goal;
-    w4_unint_yices ["ret"];
-    // w4_unint_yices ["AESRound", "AESFinalRound"];
+    simplify (cryptol_ss ());
+    simplify (addsimps slice_384_thms basic_ss);
+    w4_unint_yices ["AESRound", "AESFinalRound"];
   });
 default_x86_preserved_reg;
-
-fail "end";

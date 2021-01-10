@@ -51,7 +51,7 @@ aes_hw_ctr32_encrypt_blocks_helper : {n} (fin n) => [n][128] -> [32][8] -> [128]
 aes_hw_ctr32_encrypt_blocks_helper in key ivec = cs
   where
     cs = [p ^ (join (aes_hw_encrypt (split ctr) key)) | p <- in | ctr <- ctrs]
-    ctrs = [ join ([(ivec32 @ 0) + i] # (drop`{1} ivec32)) | i <- [0 ...]]
+    ctrs = [ join ((take`{3} ivec32) # [(ivec32 @ 3) + i]) | i <- [0 ...]]
     ivec32 = split`{4} ivec
 
 aes_hw_ctr32_encrypt_blocks : {n} (fin n) => [16*n][8] -> [32][8] -> [16][8] -> [16*n][8]
