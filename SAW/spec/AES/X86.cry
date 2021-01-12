@@ -38,8 +38,8 @@ aeskeygenassist src imm = join
     [x3, x2, x1, x0] = [split x | x <- split src]
     rcon = [0, 0, 0, imm]
 
-aesIMC : [128] -> [128]
-aesIMC src =
+aesimc : [128] -> [128]
+aesimc src =
   stateToMsg_x86 (InvMixColumns (msgToState_x86 src))
 
 RotWord_x86 : [4]GF28 -> [4]GF28

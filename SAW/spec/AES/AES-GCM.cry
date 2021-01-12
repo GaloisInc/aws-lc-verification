@@ -40,7 +40,8 @@ aes_key_from_schedule (init_key, middle_keys, final_key) = join (map reverse (ma
     key' = map stateToMsg_x86 ([init_key] # middle_keys # [final_key])
 
 inv_aes_key_from_schedule : KeySchedule -> [4 * (Nr - 1)][32]
-inv_aes_key_from_schedule (init_key, middle_keys, final_key) = join (map reverse (map split (reverse (key' @@ [2 .. Nr]))))
+inv_aes_key_from_schedule (init_key, middle_keys, final_key) =
+  reverse (split (key' ! 0)) # join (map reverse (map split (map aesimc (key' !! [1 .. Nr - 2]))))
   where
     key' = map stateToMsg_x86 ([init_key] # middle_keys # [final_key])
 

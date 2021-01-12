@@ -61,7 +61,9 @@ let aes_hw_set_encrypt_key_spec = do {
 let aes_hw_set_decrypt_key_spec = do {
   global_alloc_init "OPENSSL_ia32cap_P" {{ ia32cap }};
 
-  (user_key, user_key_ptr) <- ptr_to_fresh_readonly "user_key" (llvm_array aes_key_len (llvm_int 8));
+  user_key_ptr <- crucible_alloc_readonly (llvm_array aes_key_len (llvm_int 8));
+  (user_key_low, user_key_high) <- fresh_aes_key_256_parts;
+  crucible_points_to user_key_ptr (crucible_term {{ user_key_low#user_key_high : [aes_key_len][8]}});
   key_ptr <- crucible_alloc (llvm_struct "struct.aes_key_st");
 
   let bits = eval_size {| aes_key_len * 8 |};
@@ -69,7 +71,7 @@ let aes_hw_set_decrypt_key_spec = do {
 
   global_points_to "OPENSSL_ia32cap_P" {{ ia32cap }};
 
-  points_to_inv_aes_key_st key_ptr user_key;
+  points_to_inv_aes_key_st key_ptr (user_key_low, user_key_high);
 
   crucible_return (crucible_term {{ 0 : [32] }});
 };
